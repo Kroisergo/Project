@@ -11,4 +11,8 @@ class PrefsKeys {
   static const termsAccepted = 'termsAccepted';
   static const autoLockMinutes = 'autoLockMinutes';
   static const vaultFileName = 'vaultFileName';
+  static const unlockFailedCount = 'unlockFailedCount';
+  static const unlockLockUntilEpochMs = 'unlockLockUntilEpochMs';
+  static const vaultSortMode = 'vaultSortMode';
+  static const appThemeMode = 'appThemeMode';
 }

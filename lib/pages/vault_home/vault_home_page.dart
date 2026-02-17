@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../models/vault_sort_mode.dart';
 import '../../services/vault/auto_lock_controller.dart';
 import '../../services/vault/vault_state.dart';
+import '../../services/vault/vault_sort_controller.dart';
 import '../../utils/router_paths.dart';
 import '../unlock/unlock_page.dart';
 
@@ -45,6 +47,7 @@ class _VaultHomePageState extends ConsumerState<VaultHomePage> with WidgetsBindi
   }
 
   void _lockAndExit() {
+    ref.read(vaultProvider.notifier).clear();
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Sessão bloqueada.')),
@@ -55,24 +58,41 @@ class _VaultHomePageState extends ConsumerState<VaultHomePage> with WidgetsBindi
   @override
   Widget build(BuildContext context) {
     final vault = ref.watch(vaultProvider);
+    final sortMode = ref.watch(vaultSortControllerProvider).valueOrNull ?? VaultSortMode.az;
     final entries = vault.data?.entries ?? [];
     final tags = <String>{};
     for (final e in entries) {
       tags.addAll(e.tags);
     }
-    final filtered = entries.where((e) {
-      final matchesQuery = _query.isEmpty ||
-          e.title.toLowerCase().contains(_query) ||
-          e.username.toLowerCase().contains(_query) ||
-          e.tags.any((t) => t.toLowerCase().contains(_query));
-      final matchesTag = _selectedTags.isEmpty || e.tags.any((t) => _selectedTags.contains(t));
-      return matchesQuery && matchesTag;
-    }).toList();
+    final sortedTags = tags.toList()..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+    final filtered = filterAndSortEntries(
+      entries: entries,
+      query: _query,
+      selectedTags: _selectedTags,
+      sortMode: sortMode,
+    );
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('Cofre'),
         actions: [
+          PopupMenuButton<VaultSortMode>(
+            tooltip: 'Ordenar',
+            icon: const Icon(Icons.sort),
+            initialValue: sortMode,
+            onSelected: (mode) {
+              _autoLock.restart();
+              ref.read(vaultSortControllerProvider.notifier).setMode(mode);
+            },
+            itemBuilder: (context) => VaultSortMode.values
+                .map(
+                  (mode) => PopupMenuItem<VaultSortMode>(
+                    value: mode,
+                    child: Text(mode.label),
+                  ),
+                )
+                .toList(),
+          ),
           IconButton(
             icon: const Icon(Icons.settings),
             onPressed: () async {
@@ -149,7 +169,7 @@ class _VaultHomePageState extends ConsumerState<VaultHomePage> with WidgetsBindi
                               },
                             ),
                             const SizedBox(width: 8),
-                            ...tags.map(
+                            ...sortedTags.map(
                               (t) => Padding(
                                 padding: const EdgeInsets.only(right: 8),
                                 child: ChoiceChip(

@@ -100,7 +100,7 @@ class VaultRepository {
       );
     } catch (_) {
       key.dispose();
-      rethrow;
+      throw const VaultAuthException('Password mestra incorreta.');
     }
 
     final dataJson = jsonDecode(utf8.decode(plaintext)) as Map<String, dynamic>;
@@ -204,6 +204,14 @@ final vaultRepositoryProvider = Provider<VaultRepository>((ref) {
 class VaultLoadException implements Exception {
   final String message;
   const VaultLoadException(this.message);
+
+  @override
+  String toString() => message;
+}
+
+class VaultAuthException implements Exception {
+  final String message;
+  const VaultAuthException(this.message);
 
   @override
   String toString() => message;

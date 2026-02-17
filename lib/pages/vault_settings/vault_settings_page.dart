@@ -6,6 +6,7 @@ import 'package:path_provider/path_provider.dart';
 
 import '../../services/storage/preferences_service.dart';
 import '../../services/storage/vault_file_service.dart';
+import '../../services/theme/theme_mode_controller.dart';
 import '../../services/vault/auto_lock_controller.dart';
 import '../../services/vault/vault_state.dart';
 import '../../utils/constants.dart';
@@ -29,6 +30,7 @@ class _VaultSettingsPageState extends ConsumerState<VaultSettingsPage> with Widg
   final _importController = TextEditingController();
   String _vaultFileName = VaultConstants.defaultVaultName;
   int _autoLockMinutes = 2;
+  ThemeMode _themeMode = ThemeMode.system;
   late final AutoLockController _autoLock;
 
   @override
@@ -58,6 +60,7 @@ class _VaultSettingsPageState extends ConsumerState<VaultSettingsPage> with Widg
     final docs = await getApplicationDocumentsDirectory();
     final defaultExport = p.join(docs.path, 'vault_export${VaultConstants.vaultExtension}');
     final minutes = await _prefs.getAutoLockMinutes();
+    final savedThemeMode = await _prefs.getThemeMode();
     final savedName = await _prefs.getVaultFileName();
     final normalized = _vaultFileService.normalizeVaultName(savedName);
     if (!mounted) return;
@@ -66,6 +69,7 @@ class _VaultSettingsPageState extends ConsumerState<VaultSettingsPage> with Widg
     _importController.text = defaultExport;
     setState(() {
       _autoLockMinutes = minutes;
+      _themeMode = savedThemeMode;
     });
   }
 
@@ -128,6 +132,17 @@ class _VaultSettingsPageState extends ConsumerState<VaultSettingsPage> with Widg
     );
   }
 
+  Future<void> _updateThemeMode(ThemeMode mode) async {
+    setState(() {
+      _themeMode = mode;
+    });
+    await ref.read(themeModeControllerProvider.notifier).setMode(mode);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Tema ajustado para ${_themeModeLabel(mode)}')),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -183,6 +198,21 @@ class _VaultSettingsPageState extends ConsumerState<VaultSettingsPage> with Widg
                   onChanged: _busy ? null : (v) => _updateAutoLock(v ?? 2),
                 ),
               ),
+              const Divider(),
+              ListTile(
+                leading: const Icon(Icons.palette_outlined),
+                title: const Text('Tema'),
+                subtitle: const Text('Modo de aparencia da aplicacao'),
+                trailing: DropdownButton<ThemeMode>(
+                  value: _themeMode,
+                  items: const [
+                    DropdownMenuItem(value: ThemeMode.system, child: Text('Sistema')),
+                    DropdownMenuItem(value: ThemeMode.light, child: Text('Claro')),
+                    DropdownMenuItem(value: ThemeMode.dark, child: Text('Escuro')),
+                  ],
+                  onChanged: _busy ? null : (mode) => _updateThemeMode(mode ?? ThemeMode.system),
+                ),
+              ),
               if (_busy)
                 const Padding(
                   padding: EdgeInsets.only(top: 12),
@@ -193,5 +223,16 @@ class _VaultSettingsPageState extends ConsumerState<VaultSettingsPage> with Widg
         ),
       ),
     );
+  }
+
+  String _themeModeLabel(ThemeMode mode) {
+    switch (mode) {
+      case ThemeMode.system:
+        return 'Sistema';
+      case ThemeMode.light:
+        return 'Claro';
+      case ThemeMode.dark:
+        return 'Escuro';
+    }
   }
 }

@@ -4,9 +4,11 @@ class UnlockForm extends StatefulWidget {
   const UnlockForm({
     super.key,
     required this.onUnlock,
+    this.enabled = true,
   });
 
   final Future<void> Function(String masterPassword) onUnlock;
+  final bool enabled;
 
   @override
   State<UnlockForm> createState() => _UnlockFormState();
@@ -25,6 +27,7 @@ class _UnlockFormState extends State<UnlockForm> {
   }
 
   Future<void> _submit() async {
+    if (!widget.enabled) return;
     final form = _formKey.currentState;
     if (form == null || !form.validate()) return;
     setState(() => _loading = true);
@@ -43,6 +46,7 @@ class _UnlockFormState extends State<UnlockForm> {
         children: [
           TextFormField(
             controller: _masterController,
+            enabled: widget.enabled && !_loading,
             obscureText: _obscure,
             decoration: InputDecoration(
               labelText: 'Password Mestra',
@@ -58,7 +62,7 @@ class _UnlockFormState extends State<UnlockForm> {
           ),
           const SizedBox(height: 20),
           ElevatedButton(
-            onPressed: _loading ? null : _submit,
+            onPressed: (_loading || !widget.enabled) ? null : _submit,
             child: _loading
                 ? const SizedBox(
                     height: 20,

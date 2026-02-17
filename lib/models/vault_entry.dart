@@ -52,7 +52,16 @@ class VaultEntry {
     };
   }
 
-  factory VaultEntry.fromJson(Map<String, dynamic> json) {
+  factory VaultEntry.fromJson(
+    Map<String, dynamic> json, {
+    DateTime? fallbackUpdatedAt,
+  }) {
+    final fallback = (fallbackUpdatedAt ?? DateTime.fromMillisecondsSinceEpoch(0, isUtc: true)).toUtc();
+    final parsedUpdated = _tryParseDate(json['updatedAt']);
+    final updatedAt = (parsedUpdated ?? fallback).toUtc();
+    final parsedCreated = _tryParseDate(json['createdAt']);
+    final createdAt = (parsedCreated ?? updatedAt).toUtc();
+
     return VaultEntry(
       id: json['id'] as String,
       title: json['title'] as String,
@@ -60,8 +69,13 @@ class VaultEntry {
       password: json['password'] as String? ?? '',
       notes: json['notes'] as String? ?? '',
       tags: (json['tags'] as List<dynamic>? ?? []).cast<String>(),
-      createdAt: DateTime.parse(json['createdAt'] as String),
-      updatedAt: DateTime.parse(json['updatedAt'] as String),
+      createdAt: createdAt,
+      updatedAt: updatedAt,
     );
+  }
+
+  static DateTime? _tryParseDate(dynamic raw) {
+    if (raw is! String) return null;
+    return DateTime.tryParse(raw);
   }
 }

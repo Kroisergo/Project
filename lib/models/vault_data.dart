@@ -20,11 +20,22 @@ class VaultData {
   }
 
   factory VaultData.fromJson(Map<String, dynamic> json) {
+    final fallbackUpdatedAt = DateTime.fromMillisecondsSinceEpoch(0, isUtc: true);
+    final updatedRaw = json['updatedAt'];
+    final parsedUpdatedAt = updatedRaw is String ? DateTime.tryParse(updatedRaw) : null;
+    final updatedAt = (parsedUpdatedAt ?? fallbackUpdatedAt).toUtc();
     final entriesJson = json['entries'] as List<dynamic>? ?? [];
     return VaultData(
-      version: json['version'] as int,
-      updatedAt: DateTime.parse(json['updatedAt'] as String),
-      entries: entriesJson.map((e) => VaultEntry.fromJson(e as Map<String, dynamic>)).toList(),
+      version: json['version'] as int? ?? 1,
+      updatedAt: updatedAt,
+      entries: entriesJson
+          .map(
+            (entry) => VaultEntry.fromJson(
+              entry as Map<String, dynamic>,
+              fallbackUpdatedAt: updatedAt,
+            ),
+          )
+          .toList(),
     );
   }
 }
