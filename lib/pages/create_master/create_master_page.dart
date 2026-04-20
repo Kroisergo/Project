@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../services/security/master_password_policy.dart';
 import '../../services/storage/preferences_service.dart';
 import '../../services/storage/vault_file_service.dart';
 import '../../services/vault/vault_service.dart';
@@ -26,6 +27,9 @@ class _CreateMasterPageState extends ConsumerState<CreateMasterPage> {
   bool _obscure = true;
   bool _loading = false;
 
+  MasterPasswordPolicyResult get _masterPolicy =>
+      MasterPasswordPolicy.evaluate(_masterController.text);
+
   @override
   void dispose() {
     _masterController.dispose();
@@ -44,7 +48,9 @@ class _CreateMasterPageState extends ConsumerState<CreateMasterPage> {
       final fileService = VaultFileService();
       final prefs = ref.read(preferencesServiceProvider);
       final normalizedName = fileService.normalizeVaultName(
-        _vaultNameController.text.trim().isEmpty ? null : _vaultNameController.text,
+        _vaultNameController.text.trim().isEmpty
+            ? null
+            : _vaultNameController.text,
       );
       await vaultService.createVault(
         masterPassword: _masterController.text,
@@ -59,9 +65,9 @@ class _CreateMasterPageState extends ConsumerState<CreateMasterPage> {
       context.go(UnlockPage.routePath);
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Erro ao criar cofre: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Erro ao criar cofre: $e')));
     } finally {
       if (mounted) {
         setState(() => _loading = false);
@@ -71,12 +77,11 @@ class _CreateMasterPageState extends ConsumerState<CreateMasterPage> {
 
   @override
   Widget build(BuildContext context) {
+    final policy = _masterPolicy;
     return Scaffold(
       appBar: AppBar(
         title: const Text('Criar Password Mestra'),
-        leading: BackButton(
-          onPressed: () => context.go(WelcomePage.routePath),
-        ),
+        leading: BackButton(onPressed: () => context.go(WelcomePage.routePath)),
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(20),
@@ -101,19 +106,29 @@ class _CreateMasterPageState extends ConsumerState<CreateMasterPage> {
               TextFormField(
                 controller: _masterController,
                 obscureText: _obscure,
+                onChanged: (_) => setState(() {}),
                 decoration: InputDecoration(
                   labelText: 'Password Mestra',
                   suffixIcon: IconButton(
-                    icon: Icon(_obscure ? Icons.visibility_off : Icons.visibility),
+                    icon: Icon(
+                      _obscure ? Icons.visibility_off : Icons.visibility,
+                    ),
                     onPressed: () => setState(() => _obscure = !_obscure),
                   ),
                 ),
                 validator: (v) {
-                  if (v == null || v.isEmpty) return 'Obrigatório';
-                  if (v.length < 10) return 'Mínimo 10 caracteres';
+                  final value = v ?? '';
+                  if (value.isEmpty) return 'Obrigatório';
+                  final result = MasterPasswordPolicy.evaluate(value);
+                  if (!result.isValid) {
+                    return result.firstMissingRequirement ??
+                        'A password mestra não cumpre os requisitos.';
+                  }
                   return null;
                 },
               ),
+              const SizedBox(height: 12),
+              _PasswordPolicyStatus(result: policy),
               const SizedBox(height: 12),
               TextFormField(
                 controller: _confirmController,
@@ -122,13 +137,15 @@ class _CreateMasterPageState extends ConsumerState<CreateMasterPage> {
                   labelText: 'Confirmar Password',
                 ),
                 validator: (v) {
-                  if (v != _masterController.text) return 'Passwords não coincidem';
+                  if (v != _masterController.text) {
+                    return 'Passwords não coincidem';
+                  }
                   return null;
                 },
               ),
               const SizedBox(height: 24),
               ElevatedButton(
-                onPressed: _loading ? null : _create,
+                onPressed: _loading || !policy.isValid ? null : _create,
                 child: _loading
                     ? const SizedBox(
                         height: 20,
@@ -140,6 +157,82 @@ class _CreateMasterPageState extends ConsumerState<CreateMasterPage> {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _PasswordPolicyStatus extends StatelessWidget {
+  const _PasswordPolicyStatus({required this.result});
+
+  final MasterPasswordPolicyResult result;
+
+  @override
+  Widget build(BuildContext context) {
+    final strength = result.strength;
+    final color =
+        strength?.statusColor ?? Theme.of(context).colorScheme.outline;
+    final value = strength?.widthPerc ?? 0;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        ClipRRect(
+          borderRadius: BorderRadius.circular(4),
+          child: LinearProgressIndicator(
+            minHeight: 8,
+            value: value,
+            color: color,
+            backgroundColor: color.withAlpha(40),
+          ),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          'Força: ${_strengthLabel(strength?.name)}',
+          style: Theme.of(context).textTheme.labelMedium,
+        ),
+        const SizedBox(height: 8),
+        ...result.requirements.map(_RequirementRow.new),
+      ],
+    );
+  }
+
+  String _strengthLabel(String? name) {
+    return switch (name) {
+      'alreadyExposed' => 'Exposta',
+      'weak' => 'Fraca',
+      'medium' => 'Média',
+      'strong' => 'Forte',
+      'secure' => 'Segura',
+      _ => 'Por avaliar',
+    };
+  }
+}
+
+class _RequirementRow extends StatelessWidget {
+  const _RequirementRow(this.requirement);
+
+  final PasswordRequirement requirement;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = requirement.met
+        ? Theme.of(context).colorScheme.primary
+        : Theme.of(context).colorScheme.error;
+    return Padding(
+      padding: const EdgeInsets.only(top: 4),
+      child: Row(
+        children: [
+          Icon(
+            requirement.met
+                ? Icons.check_circle_outline
+                : Icons.cancel_outlined,
+            size: 18,
+            color: color,
+          ),
+          const SizedBox(width: 8),
+          Expanded(child: Text(requirement.label)),
+        ],
       ),
     );
   }

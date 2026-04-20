@@ -20,9 +20,10 @@ class VaultSortController extends AsyncNotifier<VaultSortMode> {
   }
 }
 
-final vaultSortControllerProvider = AsyncNotifierProvider<VaultSortController, VaultSortMode>(
-  VaultSortController.new,
-);
+final vaultSortControllerProvider =
+    AsyncNotifierProvider<VaultSortController, VaultSortMode>(
+      VaultSortController.new,
+    );
 
 List<VaultEntry> filterAndSortEntries({
   required List<VaultEntry> entries,
@@ -32,11 +33,14 @@ List<VaultEntry> filterAndSortEntries({
 }) {
   final normalizedQuery = query.trim().toLowerCase();
   final filtered = entries.where((entry) {
-    final matchesQuery = normalizedQuery.isEmpty ||
+    final matchesQuery =
+        normalizedQuery.isEmpty ||
         entry.title.toLowerCase().contains(normalizedQuery) ||
         entry.username.toLowerCase().contains(normalizedQuery) ||
         entry.tags.any((tag) => tag.toLowerCase().contains(normalizedQuery));
-    final matchesTag = selectedTags.isEmpty || entry.tags.any((tag) => selectedTags.contains(tag));
+    final matchesTag =
+        selectedTags.isEmpty ||
+        entry.tags.any((tag) => selectedTags.contains(tag));
     return matchesQuery && matchesTag;
   }).toList();
 
@@ -54,6 +58,10 @@ List<VaultEntry> filterAndSortEntries({
   });
 
   return filtered;
+}
+
+bool shouldShowVaultFilters(List<VaultEntry> entries) {
+  return entries.any((entry) => !entry.isDeleted);
 }
 
 int _compareText(String a, String b) {

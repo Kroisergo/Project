@@ -11,6 +11,12 @@ class VaultData {
     required this.entries,
   });
 
+  List<VaultEntry> get activeEntries =>
+      entries.where((entry) => !entry.isDeleted).toList();
+
+  List<VaultEntry> get deletedEntries =>
+      entries.where((entry) => entry.isDeleted).toList();
+
   Map<String, dynamic> toJson() {
     return {
       'version': version,
@@ -20,9 +26,14 @@ class VaultData {
   }
 
   factory VaultData.fromJson(Map<String, dynamic> json) {
-    final fallbackUpdatedAt = DateTime.fromMillisecondsSinceEpoch(0, isUtc: true);
+    final fallbackUpdatedAt = DateTime.fromMillisecondsSinceEpoch(
+      0,
+      isUtc: true,
+    );
     final updatedRaw = json['updatedAt'];
-    final parsedUpdatedAt = updatedRaw is String ? DateTime.tryParse(updatedRaw) : null;
+    final parsedUpdatedAt = updatedRaw is String
+        ? DateTime.tryParse(updatedRaw)
+        : null;
     final updatedAt = (parsedUpdatedAt ?? fallbackUpdatedAt).toUtc();
     final entriesJson = json['entries'] as List<dynamic>? ?? [];
     return VaultData(

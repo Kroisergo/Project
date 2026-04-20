@@ -19,7 +19,8 @@ class VaultHomePage extends ConsumerStatefulWidget {
   ConsumerState<VaultHomePage> createState() => _VaultHomePageState();
 }
 
-class _VaultHomePageState extends ConsumerState<VaultHomePage> with WidgetsBindingObserver {
+class _VaultHomePageState extends ConsumerState<VaultHomePage>
+    with WidgetsBindingObserver {
   late final AutoLockController _autoLock;
   final _searchController = TextEditingController();
   String _query = '';
@@ -49,22 +50,24 @@ class _VaultHomePageState extends ConsumerState<VaultHomePage> with WidgetsBindi
   void _lockAndExit() {
     ref.read(vaultProvider.notifier).clear();
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Sessão bloqueada.')),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('Sessão bloqueada.')));
     context.go(UnlockPage.routePath);
   }
 
   @override
   Widget build(BuildContext context) {
     final vault = ref.watch(vaultProvider);
-    final sortMode = ref.watch(vaultSortControllerProvider).valueOrNull ?? VaultSortMode.az;
-    final entries = vault.data?.entries ?? [];
+    final sortMode =
+        ref.watch(vaultSortControllerProvider).valueOrNull ?? VaultSortMode.az;
+    final entries = vault.data?.activeEntries ?? [];
     final tags = <String>{};
     for (final e in entries) {
       tags.addAll(e.tags);
     }
-    final sortedTags = tags.toList()..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+    final sortedTags = tags.toList()
+      ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
     final filtered = filterAndSortEntries(
       entries: entries,
       query: _query,
@@ -181,7 +184,8 @@ class _VaultHomePageState extends ConsumerState<VaultHomePage> with WidgetsBindi
                                       if (v) {
                                         _selectedTags = {..._selectedTags, t};
                                       } else {
-                                        _selectedTags = {..._selectedTags}..remove(t);
+                                        _selectedTags = {..._selectedTags}
+                                          ..remove(t);
                                       }
                                     });
                                   },
@@ -194,10 +198,15 @@ class _VaultHomePageState extends ConsumerState<VaultHomePage> with WidgetsBindi
                     const SizedBox(height: 8),
                     Expanded(
                       child: filtered.isEmpty
-                          ? const Center(child: Text('Nenhuma entrada corresponde ao filtro.'))
+                          ? const Center(
+                              child: Text(
+                                'Nenhuma entrada corresponde ao filtro.',
+                              ),
+                            )
                           : ListView.separated(
                               itemCount: filtered.length,
-                              separatorBuilder: (_, separatorIndex) => const Divider(height: 1),
+                              separatorBuilder: (_, separatorIndex) =>
+                                  const Divider(height: 1),
                               itemBuilder: (context, index) {
                                 final entry = filtered[index];
                                 return ListTile(
@@ -205,15 +214,21 @@ class _VaultHomePageState extends ConsumerState<VaultHomePage> with WidgetsBindi
                                   subtitle: Text(entry.username),
                                   trailing: Text(
                                     _formatDate(entry.updatedAt),
-                                    style: Theme.of(context).textTheme.labelSmall,
+                                    style: Theme.of(
+                                      context,
+                                    ).textTheme.labelSmall,
                                   ),
                                   onTap: () {
                                     _autoLock.restart();
-                                    context.push(RouterPaths.vaultEntryView(entry.id));
+                                    context.push(
+                                      RouterPaths.vaultEntryView(entry.id),
+                                    );
                                   },
                                   onLongPress: () {
                                     _autoLock.restart();
-                                    context.push(RouterPaths.vaultEntryEdit(entry.id));
+                                    context.push(
+                                      RouterPaths.vaultEntryEdit(entry.id),
+                                    );
                                   },
                                 );
                               },

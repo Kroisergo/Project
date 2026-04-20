@@ -25,7 +25,8 @@ class VaultEntryEditPage extends ConsumerStatefulWidget {
   ConsumerState<VaultEntryEditPage> createState() => _VaultEntryEditPageState();
 }
 
-class _VaultEntryEditPageState extends ConsumerState<VaultEntryEditPage> with WidgetsBindingObserver {
+class _VaultEntryEditPageState extends ConsumerState<VaultEntryEditPage>
+    with WidgetsBindingObserver {
   final _formKey = GlobalKey<FormState>();
   final _titleController = TextEditingController();
   final _userController = TextEditingController();
@@ -41,10 +42,7 @@ class _VaultEntryEditPageState extends ConsumerState<VaultEntryEditPage> with Wi
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _autoLock = AutoLockController(
-      ref: ref,
-      onTimeout: _onLocked,
-    );
+    _autoLock = AutoLockController(ref: ref, onTimeout: _onLocked);
     _autoLock.restart();
     _loadExisting();
   }
@@ -52,7 +50,7 @@ class _VaultEntryEditPageState extends ConsumerState<VaultEntryEditPage> with Wi
   void _loadExisting() {
     if (widget.entryId == null) return;
     final vault = ref.read(vaultProvider);
-    final list = vault.data?.entries ?? [];
+    final list = vault.data?.activeEntries ?? [];
     for (final entry in list) {
       if (entry.id == widget.entryId) {
         _existing = entry;
@@ -90,14 +88,18 @@ class _VaultEntryEditPageState extends ConsumerState<VaultEntryEditPage> with Wi
     try {
       final sodium = await ref.read(sodiumProvider.future);
       final bytes = sodium.randombytes.buf(16);
-      final generated = base64UrlEncode(bytes).replaceAll('=', '').substring(0, 22);
+      final generated = base64UrlEncode(
+        bytes,
+      ).replaceAll('=', '').substring(0, 22);
       if (!mounted) return;
       setState(() {
         _passController.text = generated;
       });
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erro ao gerar password: $e')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Erro ao gerar password: $e')));
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -105,9 +107,9 @@ class _VaultEntryEditPageState extends ConsumerState<VaultEntryEditPage> with Wi
 
   void _onLocked() {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Sessão bloqueada.')),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('Sessão bloqueada.')));
     context.go(UnlockPage.routePath);
   }
 
@@ -146,21 +148,29 @@ class _VaultEntryEditPageState extends ConsumerState<VaultEntryEditPage> with Wi
       }
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(_existing == null ? 'Entrada criada' : 'Entrada atualizada')),
+        SnackBar(
+          content: Text(
+            _existing == null ? 'Entrada criada' : 'Entrada atualizada',
+          ),
+        ),
       );
       if (entryId.isNotEmpty) {
-        context.go('${VaultHomePage.routePath}/${VaultEntryViewPage.subPath.replaceAll(':entryId', entryId)}');
+        context.go(
+          '${VaultHomePage.routePath}/${VaultEntryViewPage.subPath.replaceAll(':entryId', entryId)}',
+        );
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Sessão bloqueada. Reentra para gravar.')),
+          const SnackBar(
+            content: Text('Sessão bloqueada. Reentra para gravar.'),
+          ),
         );
         context.go(UnlockPage.routePath);
       }
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Erro ao guardar: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Erro ao guardar: $e')));
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -192,7 +202,9 @@ class _VaultEntryEditPageState extends ConsumerState<VaultEntryEditPage> with Wi
                 const SizedBox(height: 12),
                 TextFormField(
                   controller: _userController,
-                  decoration: const InputDecoration(labelText: 'Utilizador/Email'),
+                  decoration: const InputDecoration(
+                    labelText: 'Utilizador/Email',
+                  ),
                 ),
                 const SizedBox(height: 12),
                 TextFormField(
@@ -201,7 +213,9 @@ class _VaultEntryEditPageState extends ConsumerState<VaultEntryEditPage> with Wi
                   decoration: InputDecoration(
                     labelText: 'Password',
                     suffixIcon: IconButton(
-                      icon: Icon(_obscure ? Icons.visibility_off : Icons.visibility),
+                      icon: Icon(
+                        _obscure ? Icons.visibility_off : Icons.visibility,
+                      ),
                       onPressed: () {
                         _autoLock.restart();
                         setState(() => _obscure = !_obscure);
@@ -232,7 +246,9 @@ class _VaultEntryEditPageState extends ConsumerState<VaultEntryEditPage> with Wi
                 const SizedBox(height: 12),
                 TextFormField(
                   controller: _tagsController,
-                  decoration: const InputDecoration(labelText: 'Tags (separadas por vírgula)'),
+                  decoration: const InputDecoration(
+                    labelText: 'Tags (separadas por vírgula)',
+                  ),
                 ),
                 const SizedBox(height: 20),
                 ElevatedButton(

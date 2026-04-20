@@ -7,6 +7,7 @@ class VaultEntry {
   final List<String> tags;
   final DateTime createdAt;
   final DateTime updatedAt;
+  final DateTime? deletedAt;
 
   const VaultEntry({
     required this.id,
@@ -17,7 +18,10 @@ class VaultEntry {
     required this.tags,
     required this.createdAt,
     required this.updatedAt,
+    this.deletedAt,
   });
+
+  bool get isDeleted => deletedAt != null;
 
   VaultEntry copyWith({
     String? title,
@@ -26,6 +30,8 @@ class VaultEntry {
     String? notes,
     List<String>? tags,
     DateTime? updatedAt,
+    DateTime? deletedAt,
+    bool clearDeletedAt = false,
   }) {
     return VaultEntry(
       id: id,
@@ -36,6 +42,7 @@ class VaultEntry {
       tags: tags ?? this.tags,
       createdAt: createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
+      deletedAt: clearDeletedAt ? null : (deletedAt ?? this.deletedAt),
     );
   }
 
@@ -49,6 +56,7 @@ class VaultEntry {
       'tags': tags,
       'createdAt': createdAt.toIso8601String(),
       'updatedAt': updatedAt.toIso8601String(),
+      if (deletedAt != null) 'deletedAt': deletedAt!.toIso8601String(),
     };
   }
 
@@ -56,11 +64,15 @@ class VaultEntry {
     Map<String, dynamic> json, {
     DateTime? fallbackUpdatedAt,
   }) {
-    final fallback = (fallbackUpdatedAt ?? DateTime.fromMillisecondsSinceEpoch(0, isUtc: true)).toUtc();
+    final fallback =
+        (fallbackUpdatedAt ??
+                DateTime.fromMillisecondsSinceEpoch(0, isUtc: true))
+            .toUtc();
     final parsedUpdated = _tryParseDate(json['updatedAt']);
     final updatedAt = (parsedUpdated ?? fallback).toUtc();
     final parsedCreated = _tryParseDate(json['createdAt']);
     final createdAt = (parsedCreated ?? updatedAt).toUtc();
+    final deletedAt = _tryParseDate(json['deletedAt'])?.toUtc();
 
     return VaultEntry(
       id: json['id'] as String,
@@ -71,6 +83,7 @@ class VaultEntry {
       tags: (json['tags'] as List<dynamic>? ?? []).cast<String>(),
       createdAt: createdAt,
       updatedAt: updatedAt,
+      deletedAt: deletedAt,
     );
   }
 

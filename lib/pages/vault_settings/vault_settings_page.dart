@@ -10,6 +10,7 @@ import '../../services/theme/theme_mode_controller.dart';
 import '../../services/vault/auto_lock_controller.dart';
 import '../../services/vault/vault_state.dart';
 import '../../utils/constants.dart';
+import '../../utils/router_paths.dart';
 import '../unlock/unlock_page.dart';
 
 class VaultSettingsPage extends ConsumerStatefulWidget {
@@ -22,7 +23,8 @@ class VaultSettingsPage extends ConsumerStatefulWidget {
   ConsumerState<VaultSettingsPage> createState() => _VaultSettingsPageState();
 }
 
-class _VaultSettingsPageState extends ConsumerState<VaultSettingsPage> with WidgetsBindingObserver {
+class _VaultSettingsPageState extends ConsumerState<VaultSettingsPage>
+    with WidgetsBindingObserver {
   final _vaultFileService = VaultFileService();
   final _prefs = PreferencesService();
   bool _busy = false;
@@ -58,7 +60,10 @@ class _VaultSettingsPageState extends ConsumerState<VaultSettingsPage> with Widg
 
   Future<void> _initPaths() async {
     final docs = await getApplicationDocumentsDirectory();
-    final defaultExport = p.join(docs.path, 'vault_export${VaultConstants.vaultExtension}');
+    final defaultExport = p.join(
+      docs.path,
+      'vault_export${VaultConstants.vaultExtension}',
+    );
     final minutes = await _prefs.getAutoLockMinutes();
     final savedThemeMode = await _prefs.getThemeMode();
     final savedName = await _prefs.getVaultFileName();
@@ -75,9 +80,9 @@ class _VaultSettingsPageState extends ConsumerState<VaultSettingsPage> with Widg
 
   void _onLocked() {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Sessão bloqueada.')),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('Sessão bloqueada.')));
     context.go(UnlockPage.routePath);
   }
 
@@ -88,12 +93,19 @@ class _VaultSettingsPageState extends ConsumerState<VaultSettingsPage> with Widg
     try {
       final exportPath = _exportController.text.trim();
       if (exportPath.isEmpty) throw Exception('Indica o caminho de destino.');
-      await _vaultFileService.exportVaultTo(exportPath, fileName: _vaultFileName);
+      await _vaultFileService.exportVaultTo(
+        exportPath,
+        fileName: _vaultFileName,
+      );
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Exportado para: $exportPath')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Exportado para: $exportPath')));
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erro ao exportar: $e')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Erro ao exportar: $e')));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -105,16 +117,25 @@ class _VaultSettingsPageState extends ConsumerState<VaultSettingsPage> with Widg
     setState(() => _busy = true);
     try {
       final importPath = _importController.text.trim();
-      if (importPath.isEmpty) throw Exception('Indica o caminho do ficheiro a importar.');
-      await _vaultFileService.importVaultFrom(importPath, targetFileName: _vaultFileName);
+      if (importPath.isEmpty) {
+        throw Exception('Indica o caminho do ficheiro a importar.');
+      }
+      await _vaultFileService.importVaultFrom(
+        importPath,
+        targetFileName: _vaultFileName,
+      );
       await _prefs.setVaultFileName(_vaultFileName);
       ref.read(vaultProvider.notifier).clear();
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Importação concluída.')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Importação concluída.')));
       context.go(UnlockPage.routePath);
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erro ao importar: $e')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Erro ao importar: $e')));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -179,8 +200,22 @@ class _VaultSettingsPageState extends ConsumerState<VaultSettingsPage> with Widg
               ListTile(
                 leading: const Icon(Icons.upload_outlined),
                 title: const Text('Importar cofre'),
-                subtitle: const Text('Substitui o cofre atual pelo ficheiro selecionado'),
+                subtitle: const Text(
+                  'Substitui o cofre atual pelo ficheiro selecionado',
+                ),
                 onTap: _busy ? null : _importVault,
+              ),
+              const Divider(),
+              ListTile(
+                leading: const Icon(Icons.delete_outline),
+                title: const Text('Lixo'),
+                subtitle: const Text('Ver entradas eliminadas'),
+                onTap: _busy
+                    ? null
+                    : () {
+                        _autoLock.restart();
+                        context.push(RouterPaths.vaultTrash);
+                      },
               ),
               const Divider(),
               ListTile(
@@ -206,11 +241,22 @@ class _VaultSettingsPageState extends ConsumerState<VaultSettingsPage> with Widg
                 trailing: DropdownButton<ThemeMode>(
                   value: _themeMode,
                   items: const [
-                    DropdownMenuItem(value: ThemeMode.system, child: Text('Sistema')),
-                    DropdownMenuItem(value: ThemeMode.light, child: Text('Claro')),
-                    DropdownMenuItem(value: ThemeMode.dark, child: Text('Escuro')),
+                    DropdownMenuItem(
+                      value: ThemeMode.system,
+                      child: Text('Sistema'),
+                    ),
+                    DropdownMenuItem(
+                      value: ThemeMode.light,
+                      child: Text('Claro'),
+                    ),
+                    DropdownMenuItem(
+                      value: ThemeMode.dark,
+                      child: Text('Escuro'),
+                    ),
                   ],
-                  onChanged: _busy ? null : (mode) => _updateThemeMode(mode ?? ThemeMode.system),
+                  onChanged: _busy
+                      ? null
+                      : (mode) => _updateThemeMode(mode ?? ThemeMode.system),
                 ),
               ),
               if (_busy)

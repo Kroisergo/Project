@@ -18,16 +18,14 @@ class VaultEntryViewPage extends ConsumerStatefulWidget {
 
   final String entryId;
 
-  const VaultEntryViewPage({
-    super.key,
-    required this.entryId,
-  });
+  const VaultEntryViewPage({super.key, required this.entryId});
 
   @override
   ConsumerState<VaultEntryViewPage> createState() => _VaultEntryViewPageState();
 }
 
-class _VaultEntryViewPageState extends ConsumerState<VaultEntryViewPage> with WidgetsBindingObserver {
+class _VaultEntryViewPageState extends ConsumerState<VaultEntryViewPage>
+    with WidgetsBindingObserver {
   bool _obscure = true;
   Timer? _clipboardClear;
   int _clipboardToken = 0;
@@ -37,10 +35,7 @@ class _VaultEntryViewPageState extends ConsumerState<VaultEntryViewPage> with Wi
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _autoLock = AutoLockController(
-      ref: ref,
-      onTimeout: _onLocked,
-    );
+    _autoLock = AutoLockController(ref: ref, onTimeout: _onLocked);
     _autoLock.restart();
   }
 
@@ -60,7 +55,9 @@ class _VaultEntryViewPageState extends ConsumerState<VaultEntryViewPage> with Wi
     final token = ++_clipboardToken;
     await Clipboard.setData(ClipboardData(text: value));
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$label copiado (limpa em 30s)')));
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text('$label copiado (limpa em 30s)')));
     _clipboardClear = Timer(const Duration(seconds: 30), () async {
       if (token != _clipboardToken) return;
       final data = await Clipboard.getData('text/plain');
@@ -79,8 +76,14 @@ class _VaultEntryViewPageState extends ConsumerState<VaultEntryViewPage> with Wi
         title: const Text('Apagar entrada?'),
         content: const Text('Esta acao remove a entrada do cofre.'),
         actions: [
-          TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('Cancelar')),
-          ElevatedButton(onPressed: () => Navigator.of(context).pop(true), child: const Text('Apagar')),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancelar'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Apagar'),
+          ),
         ],
       ),
     );
@@ -94,9 +97,9 @@ class _VaultEntryViewPageState extends ConsumerState<VaultEntryViewPage> with Wi
 
   void _onLocked() {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Sessão bloqueada.')),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('Sessão bloqueada.')));
     context.go(UnlockPage.routePath);
   }
 
@@ -116,7 +119,7 @@ class _VaultEntryViewPageState extends ConsumerState<VaultEntryViewPage> with Wi
   @override
   Widget build(BuildContext context) {
     final vault = ref.watch(vaultProvider);
-    final entry = _findEntry(vault.data?.entries ?? []);
+    final entry = _findEntry(vault.data?.activeEntries ?? []);
 
     final actions = entry == null
         ? <Widget>[]
@@ -142,10 +145,7 @@ class _VaultEntryViewPageState extends ConsumerState<VaultEntryViewPage> with Wi
           ];
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Entrada'),
-        actions: actions,
-      ),
+      appBar: AppBar(title: const Text('Entrada'), actions: actions),
       body: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTap: () => _autoLock.restart(),
@@ -171,7 +171,11 @@ class _VaultEntryViewPageState extends ConsumerState<VaultEntryViewPage> with Wi
                       style: Theme.of(context).textTheme.labelMedium,
                     ),
                     const SizedBox(height: 16),
-                    _fieldRow('Utilizador', entry.username, onCopy: () => _copy('Utilizador', entry.username)),
+                    _fieldRow(
+                      'Utilizador',
+                      entry.username,
+                      onCopy: () => _copy('Utilizador', entry.username),
+                    ),
                     const SizedBox(height: 12),
                     _fieldRow(
                       'Password',
@@ -179,12 +183,18 @@ class _VaultEntryViewPageState extends ConsumerState<VaultEntryViewPage> with Wi
                       onCopy: () => _copy('Password', entry.password),
                     ),
                     const SizedBox(height: 12),
-                    _fieldRow('Notas', entry.notes, onCopy: () => _copy('Notas', entry.notes)),
+                    _fieldRow(
+                      'Notas',
+                      entry.notes,
+                      onCopy: () => _copy('Notas', entry.notes),
+                    ),
                     const SizedBox(height: 16),
                     if (entry.tags.isNotEmpty)
                       Wrap(
                         spacing: 8,
-                        children: entry.tags.map((t) => Chip(label: Text(t))).toList(),
+                        children: entry.tags
+                            .map((t) => Chip(label: Text(t)))
+                            .toList(),
                       ),
                   ],
                 ),
@@ -213,10 +223,7 @@ class _VaultEntryViewPageState extends ConsumerState<VaultEntryViewPage> with Wi
           ),
         ),
         if (onCopy != null)
-          IconButton(
-            icon: const Icon(Icons.copy),
-            onPressed: onCopy,
-          ),
+          IconButton(icon: const Icon(Icons.copy), onPressed: onCopy),
       ],
     );
   }

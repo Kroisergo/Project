@@ -3,4 +3,5 @@ class RouterPaths {
   static String vaultEntryEdit(String id) => '/vault/entry/$id/edit';
   static const vaultEntryNew = '/vault/entry/new';
   static const vaultSettings = '/vault/settings';
+  static const vaultTrash = '/vault/trash';
 }

@@ -4,7 +4,7 @@ import 'dart:typed_data';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sodium_libs/sodium_libs_sumo.dart';
+import 'package:sodium/sodium_sumo.dart';
 
 import 'package:encryvault/services/crypto/crypto_service.dart';
 import 'package:encryvault/services/crypto/sodium_provider.dart';
@@ -89,7 +89,7 @@ void main() {
 
     const master = 'very-secure-password';
     final vaultService = container.read(vaultServiceProvider);
-    await vaultService.createVault(masterPassword: master, fileName: 'test.vltx');
+    await vaultService.createVault(masterPassword: master);
 
     final repo = container.read(vaultRepositoryProvider);
     final result = await repo.loadAndDecrypt(masterPassword: master);
@@ -133,7 +133,7 @@ void main() {
     final repo = refContainer.read(vaultRepositoryProvider);
     final vs = refContainer.read(vaultServiceProvider);
     const master = 'very-secure-password';
-    await vs.createVault(masterPassword: master, fileName: 'tamper.vltx');
+    await vs.createVault(masterPassword: master);
     final file = await fileService.defaultVaultFile();
     final raf = await file.open();
     final headerLenBytes = await raf.read(4);
@@ -179,7 +179,7 @@ void main() {
     );
     const master = 'very-secure-password';
     final vs = container.read(vaultServiceProvider);
-    await vs.createVault(masterPassword: master, fileName: 'rotate.vltx');
+    await vs.createVault(masterPassword: master);
     final repo = container.read(vaultRepositoryProvider);
     final initial = await repo.loadAndDecrypt(masterPassword: master);
     final initialNonce = initial.header.nonceB64;
