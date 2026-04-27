@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_native_splash/flutter_native_splash.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -7,67 +8,49 @@ import '../terms/terms_page.dart';
 import '../unlock/unlock_page.dart';
 import '../welcome/welcome_page.dart';
 
-class SplashPage extends ConsumerWidget {
+class SplashPage extends ConsumerStatefulWidget {
   static const routePath = '/';
   static const routeName = 'splash';
 
   const SplashPage({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final bootstrap = ref.watch(bootstrapProvider);
+  ConsumerState<SplashPage> createState() => _SplashPageState();
+}
 
-    ref.listen<AsyncValue<BootstrapResult>>(bootstrapProvider, (prev, next) {
-      next.whenData((result) {
-        final target = _nextRoute(result);
-        if (!context.mounted) return;
-        WidgetsBinding.instance.addPostFrameCallback((_) async {
-          await Future.delayed(const Duration(milliseconds: 5000));
-          if (!context.mounted) return;
-          context.go(target);
-        });
-      });
+class _SplashPageState extends ConsumerState<SplashPage> {
+  bool _handled = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _bootstrap();
     });
+  }
 
-    return Scaffold(
-      body: Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 96,
-              height: 96,
-              decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.1),
-                shape: BoxShape.circle,
-              ),
-              child: Icon(
-                Icons.lock_outline,
-                size: 48,
-                color: Theme.of(context).colorScheme.primary,
-              ),
-            ),
-            const SizedBox(height: 24),
-            Text(
-              'EncryVault',
-              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
-            ),
-            const SizedBox(height: 12),
-            const Text(
-              'A inicializar o cofre…',
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 24),
-            bootstrap.maybeWhen(
-              loading: () => const CircularProgressIndicator(),
-              orElse: () => const SizedBox.shrink(),
-            ),
-          ],
-        ),
-      ),
-    );
+  Future<void> _bootstrap() async {
+    if (_handled || !mounted) return;
+    _handled = true;
+
+    String target = WelcomePage.routePath;
+    try {
+      final result = await ref.read(bootstrapProvider.future);
+      target = _nextRoute(result);
+    } catch (_) {
+      target = WelcomePage.routePath;
+    }
+
+    if (!mounted) return;
+    context.go(target);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      FlutterNativeSplash.remove();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return const Scaffold(body: SizedBox.expand());
   }
 
   String _nextRoute(BootstrapResult result) {

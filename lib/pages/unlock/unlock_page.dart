@@ -41,7 +41,9 @@ class _UnlockPageState extends ConsumerState<UnlockPage> {
 
   Future<void> _refreshPenaltyStatus() async {
     final penaltyService = ref.read(unlockPenaltyServiceProvider);
-    final status = await penaltyService.clearIfExpired(now: DateTime.now().toUtc());
+    final status = await penaltyService.clearIfExpired(
+      now: DateTime.now().toUtc(),
+    );
     if (!mounted) return;
     setState(() {
       _penalty = status;
@@ -83,11 +85,18 @@ class _UnlockPageState extends ConsumerState<UnlockPage> {
         fileName: fileName,
       );
       await penaltyService.registerSuccess();
-      notifier.setVault(result.header, result.data, result.key, fileName: result.fileName ?? fileName);
+      notifier.setVault(
+        result.header,
+        result.data,
+        result.key,
+        fileName: result.fileName ?? fileName,
+      );
       if (!mounted) return;
       context.go(VaultHomePage.routePath);
-    } on VaultAuthException catch (_) {
-      final status = await penaltyService.registerFailure(now: DateTime.now().toUtc());
+    } on VaultAuthException catch (e) {
+      final status = await penaltyService.registerFailure(
+        now: DateTime.now().toUtc(),
+      );
       if (!mounted) return;
       setState(() {
         _penalty = status;
@@ -98,7 +107,7 @@ class _UnlockPageState extends ConsumerState<UnlockPage> {
           'Demasiadas tentativas. Aguarda ${_formatDuration(status.remaining)}.',
         );
       } else {
-        _showSnack('Password mestra incorreta.');
+        _showSnack(e.message);
       }
     } on VaultLoadException catch (e) {
       _showSnack(e.message);
@@ -119,7 +128,7 @@ class _UnlockPageState extends ConsumerState<UnlockPage> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Introduz a password mestra para abrir o cofre.',
+              'Introduz a palavra-passe mestra para abrir o cofre.',
               style: Theme.of(context).textTheme.bodyLarge,
             ),
             const SizedBox(height: 8),
@@ -127,14 +136,11 @@ class _UnlockPageState extends ConsumerState<UnlockPage> {
               Text(
                 'Bloqueado por tentativas falhadas. Tenta novamente em ${_formatDuration(_penalty.remaining)}.',
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: Theme.of(context).colorScheme.error,
-                    ),
+                  color: Theme.of(context).colorScheme.error,
+                ),
               ),
             const SizedBox(height: 20),
-            UnlockForm(
-              onUnlock: _onUnlock,
-              enabled: !isLocked,
-            ),
+            UnlockForm(onUnlock: _onUnlock, enabled: !isLocked),
           ],
         ),
       ),
@@ -154,8 +160,8 @@ class _UnlockPageState extends ConsumerState<UnlockPage> {
 
   void _showSnack(String message) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message)),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 }

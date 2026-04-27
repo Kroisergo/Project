@@ -4,8 +4,11 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../models/vault_sort_mode.dart';
 import '../../utils/constants.dart';
+import '../vault/trash_retention_policy.dart';
 
 class PreferencesService {
+  static const autoLockNever = 0;
+
   Future<bool> isTermsAccepted() async {
     final prefs = await SharedPreferences.getInstance();
     return prefs.getBool(PrefsKeys.termsAccepted) ?? false;
@@ -18,12 +21,16 @@ class PreferencesService {
 
   Future<int> getAutoLockMinutes() async {
     final prefs = await SharedPreferences.getInstance();
-    return prefs.getInt(PrefsKeys.autoLockMinutes) ?? 2;
+    final value = prefs.getInt(PrefsKeys.autoLockMinutes);
+    return _normalizeAutoLockMinutes(value);
   }
 
   Future<void> setAutoLockMinutes(int minutes) async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setInt(PrefsKeys.autoLockMinutes, minutes);
+    await prefs.setInt(
+      PrefsKeys.autoLockMinutes,
+      _normalizeAutoLockMinutes(minutes),
+    );
   }
 
   Future<String?> getVaultFileName() async {
@@ -64,12 +71,26 @@ class PreferencesService {
 
   Future<VaultSortMode> getVaultSortMode() async {
     final prefs = await SharedPreferences.getInstance();
-    return vaultSortModeFromPreference(prefs.getString(PrefsKeys.vaultSortMode));
+    return vaultSortModeFromPreference(
+      prefs.getString(PrefsKeys.vaultSortMode),
+    );
   }
 
   Future<void> setVaultSortMode(VaultSortMode mode) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(PrefsKeys.vaultSortMode, mode.preferenceValue);
+  }
+
+  Future<TrashRetentionOption> getTrashRetentionOption() async {
+    final prefs = await SharedPreferences.getInstance();
+    return trashRetentionOptionFromPreference(
+      prefs.getString(PrefsKeys.trashRetention),
+    );
+  }
+
+  Future<void> setTrashRetentionOption(TrashRetentionOption option) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(PrefsKeys.trashRetention, option.preferenceValue);
   }
 
   Future<ThemeMode> getThemeMode() async {
@@ -103,6 +124,12 @@ class PreferencesService {
       case ThemeMode.system:
         return 'system';
     }
+  }
+
+  int _normalizeAutoLockMinutes(int? minutes) {
+    if (minutes == null) return 2;
+    if (minutes <= autoLockNever) return autoLockNever;
+    return minutes.clamp(1, 30);
   }
 }
 

@@ -1,16 +1,18 @@
-import 'dart:convert';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:password_strength_checker/password_strength_checker.dart';
 
 import '../../models/vault_entry.dart';
-import '../../services/crypto/sodium_provider.dart';
+import '../../services/security/master_password_policy.dart';
+import '../../services/security/password_feedback_service.dart';
+import '../../services/security/password_health_service.dart';
 import '../../services/vault/auto_lock_controller.dart';
 import '../../services/vault/vault_state.dart';
+import '../../widgets/password_policy_status.dart';
+import '../unlock/unlock_page.dart';
 import '../vault_entry_view/vault_entry_view_page.dart';
 import '../vault_home/vault_home_page.dart';
-import '../unlock/unlock_page.dart';
 
 class VaultEntryEditPage extends ConsumerStatefulWidget {
   static const subPath = 'entry/:entryId/edit';
@@ -27,6 +29,8 @@ class VaultEntryEditPage extends ConsumerStatefulWidget {
 
 class _VaultEntryEditPageState extends ConsumerState<VaultEntryEditPage>
     with WidgetsBindingObserver {
+  static const _generatedPasswordLength = 20;
+
   final _formKey = GlobalKey<FormState>();
   final _titleController = TextEditingController();
   final _userController = TextEditingController();
@@ -37,6 +41,9 @@ class _VaultEntryEditPageState extends ConsumerState<VaultEntryEditPage>
   bool _saving = false;
   VaultEntry? _existing;
   late final AutoLockController _autoLock;
+
+  MasterPasswordPolicyResult get _passwordPolicy =>
+      MasterPasswordPolicy.evaluate(_passController.text);
 
   @override
   void initState() {
@@ -68,12 +75,21 @@ class _VaultEntryEditPageState extends ConsumerState<VaultEntryEditPage>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _autoLock.cancel();
+    _clearControllers();
     _titleController.dispose();
     _userController.dispose();
     _passController.dispose();
     _notesController.dispose();
     _tagsController.dispose();
     super.dispose();
+  }
+
+  void _clearControllers() {
+    _titleController.clear();
+    _userController.clear();
+    _passController.clear();
+    _notesController.clear();
+    _tagsController.clear();
   }
 
   @override
@@ -86,20 +102,25 @@ class _VaultEntryEditPageState extends ConsumerState<VaultEntryEditPage>
     if (!mounted) return;
     setState(() => _saving = true);
     try {
-      final sodium = await ref.read(sodiumProvider.future);
-      final bytes = sodium.randombytes.buf(16);
-      final generated = base64UrlEncode(
-        bytes,
-      ).replaceAll('=', '').substring(0, 22);
+      const generator = PasswordGenerator(
+        length: _generatedPasswordLength,
+        minLowercase: 4,
+        minUppercase: 4,
+        minDigits: 4,
+        minSpecial: 4,
+        specialChars: MasterPasswordPolicy.specialChars,
+        numberOfShuffles: 2,
+      );
+      final generated = generator.generate();
       if (!mounted) return;
       setState(() {
         _passController.text = generated;
       });
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Erro ao gerar password: $e')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Erro ao gerar palavra-passe: $e')),
+      );
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -154,6 +175,7 @@ class _VaultEntryEditPageState extends ConsumerState<VaultEntryEditPage>
           ),
         ),
       );
+      _clearControllers();
       if (entryId.isNotEmpty) {
         context.go(
           '${VaultHomePage.routePath}/${VaultEntryViewPage.subPath.replaceAll(':entryId', entryId)}',
@@ -179,6 +201,17 @@ class _VaultEntryEditPageState extends ConsumerState<VaultEntryEditPage>
   @override
   Widget build(BuildContext context) {
     final isNew = _existing == null;
+    final passwordPolicy = _passwordPolicy;
+    final entries = ref.watch(vaultProvider).data?.activeEntries ?? [];
+    final reuseCount = PasswordHealthService.reuseCountForPassword(
+      entries,
+      _passController.text,
+      excludeEntryId: _existing?.id,
+    );
+    final passwordFeedback = PasswordFeedbackService.messages(
+      password: _passController.text,
+      isReused: reuseCount > 0,
+    );
     return Scaffold(
       appBar: AppBar(title: Text(isNew ? 'Nova entrada' : 'Editar entrada')),
       body: GestureDetector(
@@ -210,8 +243,9 @@ class _VaultEntryEditPageState extends ConsumerState<VaultEntryEditPage>
                 TextFormField(
                   controller: _passController,
                   obscureText: _obscure,
+                  onChanged: (_) => setState(() {}),
                   decoration: InputDecoration(
-                    labelText: 'Password',
+                    labelText: 'Palavra-passe',
                     suffixIcon: IconButton(
                       icon: Icon(
                         _obscure ? Icons.visibility_off : Icons.visibility,
@@ -223,18 +257,30 @@ class _VaultEntryEditPageState extends ConsumerState<VaultEntryEditPage>
                     ),
                   ),
                   validator: (v) {
-                    if (v == null || v.isEmpty) return 'Obrigatório';
-                    if (v.length < 6) return 'Mínimo 6 caracteres';
+                    final value = v ?? '';
+                    if (value.isEmpty) return 'Obrigatório';
                     return null;
                   },
                 ),
+                const SizedBox(height: 12),
+                PasswordPolicyStatus(result: passwordPolicy),
+                const SizedBox(height: 4),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    'Recomendação: usa uma palavra-passe forte, mas podes guardar qualquer palavra-passe.',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                _PasswordFeedbackMessages(messages: passwordFeedback),
                 const SizedBox(height: 8),
                 Align(
                   alignment: Alignment.centerRight,
                   child: TextButton.icon(
                     onPressed: _saving ? null : _generatePassword,
                     icon: const Icon(Icons.key),
-                    label: const Text('Gerar password'),
+                    label: const Text('Gerar palavra-passe'),
                   ),
                 ),
                 const SizedBox(height: 12),
@@ -265,6 +311,46 @@ class _VaultEntryEditPageState extends ConsumerState<VaultEntryEditPage>
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _PasswordFeedbackMessages extends StatelessWidget {
+  final List<String> messages;
+
+  const _PasswordFeedbackMessages({required this.messages});
+
+  @override
+  Widget build(BuildContext context) {
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: messages
+            .map(
+              (message) => Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(
+                      Icons.info_outline,
+                      size: 16,
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        message,
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            )
+            .toList(),
       ),
     );
   }

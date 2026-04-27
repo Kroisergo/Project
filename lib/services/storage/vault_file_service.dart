@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -94,8 +95,48 @@ class VaultFileService {
     if (!await source.exists()) {
       throw Exception('Ficheiro inexistente.');
     }
+    await _validateVaultFileStructure(source);
     final target = await vaultFileForName(targetFileName);
     await target.writeAsBytes(await source.readAsBytes(), flush: true);
+  }
+
+  Future<void> _validateVaultFileStructure(File source) async {
+    final raf = await source.open();
+    try {
+      final totalLen = await raf.length();
+      if (totalLen < 4) {
+        throw Exception('Ficheiro de cofre inválido ou corrompido.');
+      }
+      final headerLenBytes = await raf.read(4);
+      if (headerLenBytes.length != 4) {
+        throw Exception('Ficheiro de cofre inválido ou corrompido.');
+      }
+      final headerLen = ByteData.sublistView(
+        Uint8List.fromList(headerLenBytes),
+      ).getUint32(0, Endian.big);
+      const maxHeaderLen = 1024 * 1024;
+      if (headerLen == 0 ||
+          headerLen > maxHeaderLen ||
+          headerLen > totalLen - 4) {
+        throw Exception('Ficheiro de cofre inválido ou corrompido.');
+      }
+      final headerBytes = Uint8List.fromList(await raf.read(headerLen));
+      if (headerBytes.lengthInBytes != headerLen) {
+        throw Exception('Ficheiro de cofre inválido ou corrompido.');
+      }
+      final decoded = jsonDecode(utf8.decode(headerBytes));
+      if (decoded is! Map ||
+          decoded['magic'] != VaultConstants.magic ||
+          decoded['formatVersion'] != VaultConstants.formatVersion ||
+          decoded['cipherId'] != VaultConstants.cipherId ||
+          decoded['kdf'] != VaultConstants.kdfId) {
+        throw Exception('Ficheiro de cofre inválido ou corrompido.');
+      }
+    } catch (_) {
+      throw Exception('Ficheiro de cofre inválido ou corrompido.');
+    } finally {
+      await raf.close();
+    }
   }
 
   String normalizeVaultName(String? rawName) {

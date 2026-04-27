@@ -1,7 +1,7 @@
 # EncryVault - Documentacao Tecnica (lib/)
 
 ## Visao geral
-EncryVault e um gestor de passwords/segredos 100% offline. Existe apenas um cofre fisico (ficheiro `.vltx`) no armazenamento privado da app; os "ficheiros" mostrados na UI sao entradas logicas (registos) dentro do JSON cifrado.
+EncryVault e um gestor de palavras-passe/segredos 100% offline. Existe apenas um cofre fisico (ficheiro `.vltx`) no armazenamento privado da app; os "ficheiros" mostrados na UI sao entradas logicas (registos) dentro do JSON cifrado.
 
 ## Fluxo da aplicacao
 1) Splash (bootstrap)  
@@ -90,7 +90,7 @@ lib/
 - `lib/pages/unlock/unlock_form.dart` — O que faz: form de master; Porque existe: reutilizacao e validacao; Liga-se a: unlock_page.
 - `lib/pages/vault_home/vault_home_page.dart` — O que faz: lista, pesquisa, filtros e auto-lock; Porque existe: UX do cofre; Liga-se a: vault_state, router_paths.
 - `lib/pages/vault_entry_view/vault_entry_view_page.dart` — O que faz: ver entrada, copiar e apagar; Porque existe: detalhe da entrada; Liga-se a: vault_state.
-- `lib/pages/vault_entry_edit/vault_entry_edit_page.dart` — O que faz: criar/editar entrada e gerar password; Porque existe: CRUD; Liga-se a: vault_state, sodium_provider.
+- `lib/pages/vault_entry_edit/vault_entry_edit_page.dart` — O que faz: criar/editar entrada e gerar palavra-passe; Porque existe: CRUD; Liga-se a: vault_state, sodium_provider.
 - `lib/pages/vault_settings/vault_settings_page.dart` — O que faz: export/import e timeout; Porque existe: operacao do cofre; Liga-se a: vault_file_service, preferences_service.
 - `lib/services/bootstrap/bootstrap_service.dart` — O que faz: verifica termos e existencia do cofre; Porque existe: fluxo splash; Liga-se a: preferences_service, vault_file_service.
 - `lib/utils/constants.dart` — O que faz: constantes de formato e prefs; Porque existe: consistencia; Liga-se a: services/pages.
@@ -130,7 +130,7 @@ Widgets reutilizaveis: `widgets/` (planeado).
 - Prefixo: 4 bytes (big endian) com tamanho do header.  
 - Header JSON em claro: `magic`, `formatVersion`, `cipherId`, `kdf`, `memLimit`, `opsLimit`, `parallelism`, `salt`, `nonce`.  
 - Payload: JSON (VaultData) cifrado em XChaCha20-Poly1305.  
-- Qualquer corrupcao ou password errada -> AEAD falha -> abertura falha.
+- Qualquer corrupcao ou palavra-passe errada -> AEAD falha -> abertura falha.
 
 ## Persistencia e robustez
 - Escrita segura: `vault.tmp` + flush + rename para `.vltx`.  
@@ -139,7 +139,7 @@ Widgets reutilizaveis: `widgets/` (planeado).
 
 ## Seguranca operacional
 - Sem logs de segredos no codigo.  
-- Clipboard: limpa apos 30s quando copia password (em `vault_entry_view_page.dart`).  
+- Clipboard: limpa apos 30s quando copia palavra-passe (em `vault_entry_view_page.dart`).  
 - Screen protection: (planeado).  
 - Auto-lock: configuravel (1-10 min) e lock por lifecycle.
 

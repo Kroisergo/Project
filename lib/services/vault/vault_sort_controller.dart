@@ -54,6 +54,18 @@ List<VaultEntry> filterAndSortEntries({
         return b.updatedAt.compareTo(a.updatedAt);
       case VaultSortMode.oldest:
         return a.updatedAt.compareTo(b.updatedAt);
+      case VaultSortMode.recentlyEdited:
+        return b.updatedAt.compareTo(a.updatedAt);
+      case VaultSortMode.recentlyOpened:
+        return b.lastOpenedAt.compareTo(a.lastOpenedAt);
+      case VaultSortMode.mostUsed:
+        final byCount = b.openCount.compareTo(a.openCount);
+        if (byCount != 0) return byCount;
+        return b.lastOpenedAt.compareTo(a.lastOpenedAt);
+      case VaultSortMode.leastUsed:
+        final byCount = a.openCount.compareTo(b.openCount);
+        if (byCount != 0) return byCount;
+        return a.lastOpenedAt.compareTo(b.lastOpenedAt);
     }
   });
 

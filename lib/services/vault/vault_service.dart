@@ -47,31 +47,36 @@ class VaultService {
       entries: const [],
     );
 
-    final plaintext = utf8.encode(jsonEncode(vaultData.toJson()));
+    final plaintext = Uint8List.fromList(
+      utf8.encode(jsonEncode(vaultData.toJson())),
+    );
     final header = _buildHeader(
       kdfParams: kdfParams,
       salt: salt,
       nonce: nonce,
     );
-    final headerBytes = utf8.encode(jsonEncode(header.toJson()));
+    final headerBytes = Uint8List.fromList(
+      utf8.encode(jsonEncode(header.toJson())),
+    );
 
     late final Uint8List cipherBytes;
     try {
       cipherBytes = cryptoService.encrypt(
         sodium: sodium,
-        plaintext: Uint8List.fromList(plaintext),
+        plaintext: plaintext,
         nonce: nonce,
         key: key,
-        headerBytes: Uint8List.fromList(headerBytes),
+        headerBytes: headerBytes,
       );
     } finally {
+      plaintext.fillRange(0, plaintext.length, 0);
       key.dispose();
     }
 
     final target = await vaultFileService.vaultFileForName(fileName);
     await vaultFileService.writeVault(
       target: target,
-      headerBytes: Uint8List.fromList(headerBytes),
+      headerBytes: headerBytes,
       cipherBytes: cipherBytes,
     );
   }

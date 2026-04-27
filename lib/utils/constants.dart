@@ -15,4 +15,5 @@ class PrefsKeys {
   static const unlockLockUntilEpochMs = 'unlockLockUntilEpochMs';
   static const vaultSortMode = 'vaultSortMode';
   static const appThemeMode = 'appThemeMode';
+  static const trashRetention = 'trashRetention';
 }

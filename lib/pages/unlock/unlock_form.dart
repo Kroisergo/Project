@@ -1,11 +1,7 @@
 import 'package:flutter/material.dart';
 
 class UnlockForm extends StatefulWidget {
-  const UnlockForm({
-    super.key,
-    required this.onUnlock,
-    this.enabled = true,
-  });
+  const UnlockForm({super.key, required this.onUnlock, this.enabled = true});
 
   final Future<void> Function(String masterPassword) onUnlock;
   final bool enabled;
@@ -22,6 +18,7 @@ class _UnlockFormState extends State<UnlockForm> {
 
   @override
   void dispose() {
+    _masterController.clear();
     _masterController.dispose();
     super.dispose();
   }
@@ -31,9 +28,11 @@ class _UnlockFormState extends State<UnlockForm> {
     final form = _formKey.currentState;
     if (form == null || !form.validate()) return;
     setState(() => _loading = true);
+    final masterPassword = _masterController.text;
     try {
-      await widget.onUnlock(_masterController.text);
+      await widget.onUnlock(masterPassword);
     } finally {
+      _masterController.clear();
       if (mounted) setState(() => _loading = false);
     }
   }
@@ -49,7 +48,7 @@ class _UnlockFormState extends State<UnlockForm> {
             enabled: widget.enabled && !_loading,
             obscureText: _obscure,
             decoration: InputDecoration(
-              labelText: 'Password Mestra',
+              labelText: 'Palavra-passe mestra',
               suffixIcon: IconButton(
                 icon: Icon(_obscure ? Icons.visibility_off : Icons.visibility),
                 onPressed: () => setState(() => _obscure = !_obscure),

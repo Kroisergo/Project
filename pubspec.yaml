@@ -9,12 +9,16 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  flutter_localizations:
+    sdk: flutter
   cupertino_icons: ^1.0.8
   flutter_riverpod: ^2.5.1
   go_router: ^10.1.2
   sodium: ^4.0.2+1
   path_provider: ^2.1.2
   shared_preferences: ^2.2.2
+  flutter_secure_storage: ^9.2.2
+  flutter_native_splash: ^2.4.6
   path: ^1.9.0
   uuid: ^4.3.3
   password_strength_checker: ^1.3.2
@@ -23,6 +27,30 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.14.3
 
 flutter:
   uses-material-design: true
+  assets:
+    - assets/branding/app_icon.png
+
+flutter_native_splash:
+  android: true
+  ios: false
+  web: false
+  color: "#FFFFFF"
+  image: assets/branding/splash_screen.png
+  android_gravity: center
+  android_12:
+    color: "#FFFFFF"
+    image: assets/branding/splash_screen.png
+    icon_background_color: "#FFFFFF"
+
+flutter_launcher_icons:
+  android: true
+  ios: false
+  web:
+    generate: false
+  image_path_android: assets/branding/app_icon.png
+  adaptive_icon_background: "#FFFFFF"
+  adaptive_icon_foreground: assets/branding/app_icon.png

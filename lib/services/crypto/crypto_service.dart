@@ -31,14 +31,18 @@ class CryptoService {
       pwhash.opsLimitMin,
       pwhash.opsLimitMax,
     );
-    return sodium.crypto.pwhash.call(
-      outLen: sodium.crypto.aeadXChaCha20Poly1305IETF.keyBytes,
-      password: masterBytes,
-      salt: salt,
-      opsLimit: opsLimit,
-      memLimit: params.memLimit,
-      alg: CryptoPwhashAlgorithm.argon2id13,
-    );
+    try {
+      return sodium.crypto.pwhash.call(
+        outLen: sodium.crypto.aeadXChaCha20Poly1305IETF.keyBytes,
+        password: masterBytes,
+        salt: salt,
+        opsLimit: opsLimit,
+        memLimit: params.memLimit,
+        alg: CryptoPwhashAlgorithm.argon2id13,
+      );
+    } finally {
+      masterBytes.fillRange(0, masterBytes.length, 0);
+    }
   }
 
   Uint8List encrypt({

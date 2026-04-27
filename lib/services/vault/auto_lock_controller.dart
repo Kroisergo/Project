@@ -7,10 +7,7 @@ import '../storage/preferences_service.dart';
 import 'vault_state.dart';
 
 class AutoLockController {
-  AutoLockController({
-    required this.ref,
-    required this.onTimeout,
-  });
+  AutoLockController({required this.ref, required this.onTimeout});
 
   final WidgetRef ref;
   final VoidCallback onTimeout;
@@ -18,10 +15,12 @@ class AutoLockController {
   Timer? _lockTimer;
   Duration _timeout = const Duration(minutes: 2);
   bool _loaded = false;
+  bool _disabled = false;
 
   Future<void> restart() async {
     await _ensureTimeout();
     _lockTimer?.cancel();
+    if (_disabled) return;
     _lockTimer = Timer(_timeout, _triggerLock);
   }
 
@@ -36,17 +35,29 @@ class AutoLockController {
   }
 
   Future<void> handleLifecycle(AppLifecycleState state) async {
-    if (state == AppLifecycleState.paused || state == AppLifecycleState.inactive) {
+    await _ensureTimeout();
+    if (_disabled) return;
+    if (_isUnsafeLifecycleState(state)) {
       _triggerLock();
     } else if (state == AppLifecycleState.resumed) {
       await restart();
     }
   }
 
+  bool _isUnsafeLifecycleState(AppLifecycleState state) {
+    return state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.hidden ||
+        state == AppLifecycleState.detached;
+  }
+
   Future<void> _loadTimeout() async {
     final prefs = ref.read(preferencesServiceProvider);
     final minutes = await prefs.getAutoLockMinutes();
-    _timeout = Duration(minutes: minutes.clamp(1, 30));
+    _disabled = minutes == PreferencesService.autoLockNever;
+    _timeout = _disabled
+        ? Duration.zero
+        : Duration(minutes: minutes.clamp(1, 30));
     _loaded = true;
   }
 

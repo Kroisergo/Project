@@ -6,6 +6,7 @@ import '../../services/security/master_password_policy.dart';
 import '../../services/storage/preferences_service.dart';
 import '../../services/storage/vault_file_service.dart';
 import '../../services/vault/vault_service.dart';
+import '../../widgets/password_policy_status.dart';
 import '../unlock/unlock_page.dart';
 import '../welcome/welcome_page.dart';
 
@@ -32,6 +33,9 @@ class _CreateMasterPageState extends ConsumerState<CreateMasterPage> {
 
   @override
   void dispose() {
+    _masterController.clear();
+    _confirmController.clear();
+    _vaultNameController.clear();
     _masterController.dispose();
     _confirmController.dispose();
     _vaultNameController.dispose();
@@ -62,6 +66,8 @@ class _CreateMasterPageState extends ConsumerState<CreateMasterPage> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Cofre criado com sucesso.')),
       );
+      _masterController.clear();
+      _confirmController.clear();
       context.go(UnlockPage.routePath);
     } catch (e) {
       if (!mounted) return;
@@ -80,7 +86,7 @@ class _CreateMasterPageState extends ConsumerState<CreateMasterPage> {
     final policy = _masterPolicy;
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Criar Password Mestra'),
+        title: const Text('Criar palavra-passe mestra'),
         leading: BackButton(onPressed: () => context.go(WelcomePage.routePath)),
       ),
       body: SingleChildScrollView(
@@ -91,7 +97,7 @@ class _CreateMasterPageState extends ConsumerState<CreateMasterPage> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'Define a tua password mestra para cifrar todo o cofre.',
+                'Define a tua palavra-passe mestra para cifrar todo o cofre.',
                 style: Theme.of(context).textTheme.bodyLarge,
               ),
               const SizedBox(height: 16),
@@ -108,7 +114,7 @@ class _CreateMasterPageState extends ConsumerState<CreateMasterPage> {
                 obscureText: _obscure,
                 onChanged: (_) => setState(() {}),
                 decoration: InputDecoration(
-                  labelText: 'Password Mestra',
+                  labelText: 'Palavra-passe mestra',
                   suffixIcon: IconButton(
                     icon: Icon(
                       _obscure ? Icons.visibility_off : Icons.visibility,
@@ -118,27 +124,27 @@ class _CreateMasterPageState extends ConsumerState<CreateMasterPage> {
                 ),
                 validator: (v) {
                   final value = v ?? '';
-                  if (value.isEmpty) return 'Obrigatório';
+                  if (value.isEmpty) return 'Obrigatorio';
                   final result = MasterPasswordPolicy.evaluate(value);
                   if (!result.isValid) {
                     return result.firstMissingRequirement ??
-                        'A password mestra não cumpre os requisitos.';
+                        'A palavra-passe mestra nao cumpre os requisitos.';
                   }
                   return null;
                 },
               ),
               const SizedBox(height: 12),
-              _PasswordPolicyStatus(result: policy),
+              PasswordPolicyStatus(result: policy),
               const SizedBox(height: 12),
               TextFormField(
                 controller: _confirmController,
                 obscureText: _obscure,
                 decoration: const InputDecoration(
-                  labelText: 'Confirmar Password',
+                  labelText: 'Confirmar palavra-passe',
                 ),
                 validator: (v) {
                   if (v != _masterController.text) {
-                    return 'Passwords não coincidem';
+                    return 'As palavras-passe nao coincidem';
                   }
                   return null;
                 },
@@ -157,82 +163,6 @@ class _CreateMasterPageState extends ConsumerState<CreateMasterPage> {
             ],
           ),
         ),
-      ),
-    );
-  }
-}
-
-class _PasswordPolicyStatus extends StatelessWidget {
-  const _PasswordPolicyStatus({required this.result});
-
-  final MasterPasswordPolicyResult result;
-
-  @override
-  Widget build(BuildContext context) {
-    final strength = result.strength;
-    final color =
-        strength?.statusColor ?? Theme.of(context).colorScheme.outline;
-    final value = strength?.widthPerc ?? 0;
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        ClipRRect(
-          borderRadius: BorderRadius.circular(4),
-          child: LinearProgressIndicator(
-            minHeight: 8,
-            value: value,
-            color: color,
-            backgroundColor: color.withAlpha(40),
-          ),
-        ),
-        const SizedBox(height: 6),
-        Text(
-          'Força: ${_strengthLabel(strength?.name)}',
-          style: Theme.of(context).textTheme.labelMedium,
-        ),
-        const SizedBox(height: 8),
-        ...result.requirements.map(_RequirementRow.new),
-      ],
-    );
-  }
-
-  String _strengthLabel(String? name) {
-    return switch (name) {
-      'alreadyExposed' => 'Exposta',
-      'weak' => 'Fraca',
-      'medium' => 'Média',
-      'strong' => 'Forte',
-      'secure' => 'Segura',
-      _ => 'Por avaliar',
-    };
-  }
-}
-
-class _RequirementRow extends StatelessWidget {
-  const _RequirementRow(this.requirement);
-
-  final PasswordRequirement requirement;
-
-  @override
-  Widget build(BuildContext context) {
-    final color = requirement.met
-        ? Theme.of(context).colorScheme.primary
-        : Theme.of(context).colorScheme.error;
-    return Padding(
-      padding: const EdgeInsets.only(top: 4),
-      child: Row(
-        children: [
-          Icon(
-            requirement.met
-                ? Icons.check_circle_outline
-                : Icons.cancel_outlined,
-            size: 18,
-            color: color,
-          ),
-          const SizedBox(width: 8),
-          Expanded(child: Text(requirement.label)),
-        ],
       ),
     );
   }

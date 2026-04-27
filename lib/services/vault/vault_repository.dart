@@ -49,9 +49,13 @@ class VaultRepository {
       if (headerLenBytes.length != 4) {
         throw const VaultLoadException('Header inválido.');
       }
-      final headerLen = ByteData.sublistView(Uint8List.fromList(headerLenBytes)).getUint32(0, Endian.big);
+      final headerLen = ByteData.sublistView(
+        Uint8List.fromList(headerLenBytes),
+      ).getUint32(0, Endian.big);
       const maxHeaderLen = 1024 * 1024;
-      if (headerLen == 0 || headerLen > maxHeaderLen || headerLen > totalLen - 4) {
+      if (headerLen == 0 ||
+          headerLen > maxHeaderLen ||
+          headerLen > totalLen - 4) {
         throw const VaultLoadException('Header inválido.');
       }
       headerBytes = Uint8List.fromList(await raf.read(headerLen));
@@ -70,9 +74,19 @@ class VaultRepository {
       await raf.close();
     }
 
-    final headerJson = jsonDecode(utf8.decode(headerBytes)) as Map<String, dynamic>;
-    final header = VaultHeader.fromJson(headerJson);
-    _validateHeader(header, sodium);
+    late final VaultHeader header;
+    try {
+      final decodedHeader = jsonDecode(utf8.decode(headerBytes));
+      if (decodedHeader is! Map) {
+        throw const FormatException('Header is not an object.');
+      }
+      header = VaultHeader.fromJson(Map<String, dynamic>.from(decodedHeader));
+      _validateHeader(header, sodium);
+    } on VaultLoadException {
+      rethrow;
+    } catch (_) {
+      throw const VaultLoadException('Header inválido.');
+    }
 
     final salt = base64Decode(header.saltB64);
     final nonce = base64Decode(header.nonceB64);
@@ -100,11 +114,26 @@ class VaultRepository {
       );
     } catch (_) {
       key.dispose();
-      throw const VaultAuthException('Password mestra incorreta.');
+      throw const VaultAuthException(
+        'Não foi possível validar a integridade do cofre. A palavra-passe pode estar incorreta ou o ficheiro pode ter sido alterado.',
+      );
     }
 
-    final dataJson = jsonDecode(utf8.decode(plaintext)) as Map<String, dynamic>;
-    final data = VaultData.fromJson(dataJson);
+    late final VaultData data;
+    try {
+      final decodedData = jsonDecode(utf8.decode(plaintext));
+      if (decodedData is! Map) {
+        throw const FormatException('Vault data is not an object.');
+      }
+      data = VaultData.fromJson(Map<String, dynamic>.from(decodedData));
+    } catch (_) {
+      key.dispose();
+      throw const VaultLoadException(
+        'Conteúdo do cofre inválido ou corrompido.',
+      );
+    } finally {
+      plaintext.fillRange(0, plaintext.length, 0);
+    }
 
     return VaultOpenResult(
       header: header,
@@ -125,7 +154,10 @@ class VaultRepository {
     String newNonceB64;
     Uint8List nonce;
     do {
-      nonce = cryptoService.randomBytes(sodium, sodium.crypto.aeadXChaCha20Poly1305IETF.nonceBytes);
+      nonce = cryptoService.randomBytes(
+        sodium,
+        sodium.crypto.aeadXChaCha20Poly1305IETF.nonceBytes,
+      );
       newNonceB64 = base64Encode(nonce);
     } while (newNonceB64 == oldNonceB64);
 
@@ -141,20 +173,29 @@ class VaultRepository {
       nonceB64: newNonceB64,
     );
 
-    final headerBytes = utf8.encode(jsonEncode(newHeader.toJson()));
-    final plaintext = utf8.encode(jsonEncode(data.toJson()));
-    final cipherBytes = cryptoService.encrypt(
-      sodium: sodium,
-      plaintext: Uint8List.fromList(plaintext),
-      nonce: nonce,
-      key: key,
-      headerBytes: Uint8List.fromList(headerBytes),
+    final headerBytes = Uint8List.fromList(
+      utf8.encode(jsonEncode(newHeader.toJson())),
     );
+    final plaintext = Uint8List.fromList(
+      utf8.encode(jsonEncode(data.toJson())),
+    );
+    late final Uint8List cipherBytes;
+    try {
+      cipherBytes = cryptoService.encrypt(
+        sodium: sodium,
+        plaintext: plaintext,
+        nonce: nonce,
+        key: key,
+        headerBytes: headerBytes,
+      );
+    } finally {
+      plaintext.fillRange(0, plaintext.length, 0);
+    }
 
     final target = await fileService.vaultFileForName(fileName);
     await fileService.writeVault(
       target: target,
-      headerBytes: Uint8List.fromList(headerBytes),
+      headerBytes: headerBytes,
       cipherBytes: cipherBytes,
     );
 
@@ -174,7 +215,8 @@ class VaultRepository {
     if (header.kdf != VaultConstants.kdfId) {
       throw const VaultLoadException('KDF não suportado.');
     }
-    if (base64Decode(header.nonceB64).length != sodium.crypto.aeadXChaCha20Poly1305IETF.nonceBytes) {
+    if (base64Decode(header.nonceB64).length !=
+        sodium.crypto.aeadXChaCha20Poly1305IETF.nonceBytes) {
       throw const VaultLoadException('Nonce inválido.');
     }
     final saltLen = base64Decode(header.saltB64).length;
@@ -184,7 +226,10 @@ class VaultRepository {
     final pwhash = sodium.crypto.pwhash;
     final maxMem = pwhash.memLimitSensitive * 16;
     final maxOps = pwhash.opsLimitSensitive * 16;
-    if (header.memLimit <= 0 || header.memLimit > maxMem || header.opsLimit <= 0 || header.opsLimit > maxOps) {
+    if (header.memLimit <= 0 ||
+        header.memLimit > maxMem ||
+        header.opsLimit <= 0 ||
+        header.opsLimit > maxOps) {
       throw const VaultLoadException('Parâmetros KDF inválidos.');
     }
     if (header.parallelism <= 0 || header.parallelism > 16) {
