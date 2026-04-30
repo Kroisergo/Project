@@ -33,7 +33,10 @@ void main() {
     final crypto = CryptoService();
     final params = crypto.defaultParams(sodium);
     final salt = crypto.randomBytes(sodium, sodium.crypto.pwhash.saltBytes);
-    final nonce = crypto.randomBytes(sodium, sodium.crypto.aeadXChaCha20Poly1305IETF.nonceBytes);
+    final nonce = crypto.randomBytes(
+      sodium,
+      sodium.crypto.aeadXChaCha20Poly1305IETF.nonceBytes,
+    );
     final key = crypto.deriveKey(
       sodium: sodium,
       masterPassword: 'very-secure-password',
@@ -137,7 +140,9 @@ void main() {
     final file = await fileService.defaultVaultFile();
     final raf = await file.open();
     final headerLenBytes = await raf.read(4);
-    final headerLen = ByteData.sublistView(Uint8List.fromList(headerLenBytes)).getUint32(0, Endian.big);
+    final headerLen = ByteData.sublistView(
+      Uint8List.fromList(headerLenBytes),
+    ).getUint32(0, Endian.big);
     final headerBytes = await raf.read(headerLen);
     await raf.close();
 
@@ -151,7 +156,10 @@ void main() {
     ];
     await file.writeAsBytes(corrupted, flush: true);
 
-    expect(() => repo.loadAndDecrypt(masterPassword: master), throwsA(isA<Exception>()));
+    expect(
+      () => repo.loadAndDecrypt(masterPassword: master),
+      throwsA(isA<Exception>()),
+    );
   });
 
   test('Nonce rotates on save', () async {
@@ -184,15 +192,112 @@ void main() {
     final initial = await repo.loadAndDecrypt(masterPassword: master);
     final initialNonce = initial.header.nonceB64;
 
-    container.read(vaultProvider.notifier).setVault(initial.header, initial.data, initial.key);
-    await container.read(vaultProvider.notifier).addEntry(
-          title: 't',
-          username: 'u',
-          password: 'p',
-          notes: '',
-        );
+    container
+        .read(vaultProvider.notifier)
+        .setVault(initial.header, initial.data, initial.key);
+    await container
+        .read(vaultProvider.notifier)
+        .addEntry(title: 't', username: 'u', password: 'p', notes: '');
     final after = await repo.loadAndDecrypt(masterPassword: master);
 
     expect(after.header.nonceB64 == initialNonce, isFalse);
   });
+
+  test('Master password change re-encrypts vault and preserves data', () async {
+    if (!sodiumReady) return;
+    final tempDir = await Directory.systemTemp.createTemp('vault_rekey_test');
+    final fileService = VaultFileService(baseDir: tempDir);
+    final container = ProviderContainer(
+      overrides: [
+        sodiumProvider.overrideWith((ref) async => sodium),
+        vaultServiceProvider.overrideWith(
+          (ref) => VaultService(
+            ref: ref,
+            cryptoService: CryptoService(),
+            vaultFileService: fileService,
+          ),
+        ),
+        vaultRepositoryProvider.overrideWith(
+          (ref) => VaultRepository(
+            ref: ref,
+            cryptoService: CryptoService(),
+            fileService: fileService,
+          ),
+        ),
+      ],
+    );
+    const oldMaster = 'OldStrongPassword12!';
+    const newMaster = 'NewStrongPassword34!';
+    await container
+        .read(vaultServiceProvider)
+        .createVault(masterPassword: oldMaster);
+    final repo = container.read(vaultRepositoryProvider);
+    final initial = await repo.loadAndDecrypt(masterPassword: oldMaster);
+    container
+        .read(vaultProvider.notifier)
+        .setVault(
+          initial.header,
+          initial.data,
+          initial.key,
+          fileName: initial.fileName,
+        );
+    await container
+        .read(vaultProvider.notifier)
+        .addEntry(
+          title: 'Email',
+          username: 'user@example.com',
+          password: 'EntryPassword12!',
+          notes: 'note',
+        );
+
+    await container
+        .read(vaultProvider.notifier)
+        .changeMasterPassword(
+          currentPassword: oldMaster,
+          newPassword: newMaster,
+        );
+
+    await expectLater(
+      repo.loadAndDecrypt(masterPassword: oldMaster),
+      throwsA(isA<VaultAuthException>()),
+    );
+    final reopened = await repo.loadAndDecrypt(masterPassword: newMaster);
+    expect(reopened.data.entries.single.title, 'Email');
+    reopened.key.dispose();
+  });
+
+  test(
+    'Backup validation accepts valid vault and rejects corrupted file',
+    () async {
+      if (!sodiumReady) return;
+      final tempDir = await Directory.systemTemp.createTemp(
+        'vault_backup_test',
+      );
+      final fileService = VaultFileService(baseDir: tempDir);
+      final container = ProviderContainer(
+        overrides: [
+          sodiumProvider.overrideWith((ref) async => sodium),
+          vaultServiceProvider.overrideWith(
+            (ref) => VaultService(
+              ref: ref,
+              cryptoService: CryptoService(),
+              vaultFileService: fileService,
+            ),
+          ),
+        ],
+      );
+      await container
+          .read(vaultServiceProvider)
+          .createVault(masterPassword: 'StrongPassword12!');
+      final file = await fileService.defaultVaultFile();
+
+      final valid = await fileService.validateVaultFileStructure(file.path);
+      expect(valid.isValid, isTrue);
+      expect(valid.payloadBytes, greaterThan(0));
+
+      await file.writeAsBytes([0, 1, 2, 3], flush: true);
+      final invalid = await fileService.validateVaultFileStructure(file.path);
+      expect(invalid.isValid, isFalse);
+    },
+  );
 }

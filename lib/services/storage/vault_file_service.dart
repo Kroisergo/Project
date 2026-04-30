@@ -31,7 +31,9 @@ class VaultFileService {
   }
 
   Future<bool> hasExistingVault({String? preferredName}) async {
-    final preferred = preferredName == null || preferredName.trim().isEmpty ? null : preferredName;
+    final preferred = preferredName == null || preferredName.trim().isEmpty
+        ? null
+        : preferredName;
     if (preferred != null) {
       final preferredFile = await vaultFileForName(preferred);
       return await preferredFile.exists();
@@ -46,7 +48,9 @@ class VaultFileService {
     required Uint8List cipherBytes,
   }) async {
     final headerLen = ByteData(4)..setUint32(0, headerBytes.length, Endian.big);
-    final tmp = File('${target.path}.${DateTime.now().microsecondsSinceEpoch}.tmp');
+    final tmp = File(
+      '${target.path}.${DateTime.now().microsecondsSinceEpoch}.tmp',
+    );
     final raf = await tmp.open(mode: FileMode.write);
     await raf.writeFrom(headerLen.buffer.asUint8List());
     await raf.writeFrom(headerBytes);
@@ -90,17 +94,51 @@ class VaultFileService {
     await destFile.writeAsBytes(await source.readAsBytes(), flush: true);
   }
 
-  Future<void> importVaultFrom(String sourcePath, {String? targetFileName}) async {
-    final source = File(sourcePath);
+  Future<void> importVaultFrom(
+    String sourcePath, {
+    String? targetFileName,
+  }) async {
+    final source = File(sourcePath.trim());
     if (!await source.exists()) {
       throw Exception('Ficheiro inexistente.');
     }
-    await _validateVaultFileStructure(source);
+    final validation = await validateVaultFileStructure(sourcePath);
+    if (!validation.isValid) {
+      throw Exception(validation.message);
+    }
     final target = await vaultFileForName(targetFileName);
     await target.writeAsBytes(await source.readAsBytes(), flush: true);
   }
 
-  Future<void> _validateVaultFileStructure(File source) async {
+  Future<VaultBackupValidationResult> validateVaultFileStructure(
+    String sourcePath,
+  ) async {
+    final trimmedPath = sourcePath.trim();
+    if (trimmedPath.isEmpty) {
+      return const VaultBackupValidationResult.invalid(
+        'Indica o ficheiro de backup a verificar.',
+      );
+    }
+    final source = File(trimmedPath);
+    if (!await source.exists()) {
+      return const VaultBackupValidationResult.invalid('Ficheiro inexistente.');
+    }
+
+    try {
+      final structure = await _readVaultFileStructure(source);
+      return VaultBackupValidationResult.valid(
+        message: 'Backup válido.',
+        header: structure.header,
+        payloadBytes: structure.payloadBytes,
+      );
+    } catch (_) {
+      return const VaultBackupValidationResult.invalid(
+        'Backup inválido ou corrompido.',
+      );
+    }
+  }
+
+  Future<_VaultFileStructure> _readVaultFileStructure(File source) async {
     final raf = await source.open();
     try {
       final totalLen = await raf.length();
@@ -132,8 +170,30 @@ class VaultFileService {
           decoded['kdf'] != VaultConstants.kdfId) {
         throw Exception('Ficheiro de cofre inválido ou corrompido.');
       }
-    } catch (_) {
-      throw Exception('Ficheiro de cofre inválido ou corrompido.');
+      final remaining = totalLen - 4 - headerLen;
+      if (remaining <= 0) {
+        throw Exception('Ficheiro de cofre inválido ou corrompido.');
+      }
+      if (decoded['memLimit'] is! int ||
+          decoded['opsLimit'] is! int ||
+          decoded['parallelism'] is! int ||
+          decoded['memLimit'] <= 0 ||
+          decoded['opsLimit'] <= 0 ||
+          decoded['parallelism'] <= 0) {
+        throw Exception('Ficheiro de cofre inválido ou corrompido.');
+      }
+      final salt = decoded['salt'];
+      final nonce = decoded['nonce'];
+      if (salt is! String || nonce is! String) {
+        throw Exception('Ficheiro de cofre inválido ou corrompido.');
+      }
+      if (base64Decode(salt).isEmpty || base64Decode(nonce).isEmpty) {
+        throw Exception('Ficheiro de cofre inválido ou corrompido.');
+      }
+      return _VaultFileStructure(
+        header: Map<String, dynamic>.from(decoded),
+        payloadBytes: remaining,
+      );
     } finally {
       await raf.close();
     }
@@ -145,7 +205,10 @@ class VaultFileService {
     }
     final trimmed = rawName.trim();
     final withoutTrailing = trimmed.replaceAll(RegExp(r'[. ]+$'), '');
-    final sanitized = withoutTrailing.replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '_');
+    final sanitized = withoutTrailing.replaceAll(
+      RegExp(r'[^A-Za-z0-9._-]'),
+      '_',
+    );
     final baseName = p.basenameWithoutExtension(sanitized);
     const reserved = {
       'CON',
@@ -183,4 +246,39 @@ class VaultFileService {
     }
     return '$sanitized${VaultConstants.vaultExtension}';
   }
+}
+
+class VaultBackupValidationResult {
+  final bool isValid;
+  final String message;
+  final Map<String, dynamic>? header;
+  final int payloadBytes;
+
+  const VaultBackupValidationResult._({
+    required this.isValid,
+    required this.message,
+    required this.header,
+    required this.payloadBytes,
+  });
+
+  const VaultBackupValidationResult.valid({
+    required String message,
+    required Map<String, dynamic> header,
+    required int payloadBytes,
+  }) : this._(
+         isValid: true,
+         message: message,
+         header: header,
+         payloadBytes: payloadBytes,
+       );
+
+  const VaultBackupValidationResult.invalid(String message)
+    : this._(isValid: false, message: message, header: null, payloadBytes: 0);
+}
+
+class _VaultFileStructure {
+  final Map<String, dynamic> header;
+  final int payloadBytes;
+
+  const _VaultFileStructure({required this.header, required this.payloadBytes});
 }

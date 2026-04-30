@@ -4,6 +4,7 @@ import 'package:password_strength_checker/password_strength_checker.dart';
 import 'package:encryvault/models/vault_data.dart';
 import 'package:encryvault/models/vault_entry.dart';
 import 'package:encryvault/models/vault_sort_mode.dart';
+import 'package:encryvault/services/security/entry_password_generator.dart';
 import 'package:encryvault/services/security/master_password_policy.dart';
 import 'package:encryvault/services/security/password_feedback_service.dart';
 import 'package:encryvault/services/security/password_entry_recommendation.dart';
@@ -86,6 +87,24 @@ void main() {
       expect(RegExp(r'[0-9]').hasMatch(password), isTrue);
       expect(RegExp(r'[^A-Za-z0-9]').hasMatch(password), isTrue);
     });
+
+    test(
+      'entry generator respects minimum length and avoids ambiguous chars',
+      () {
+        final password = EntryPasswordGenerator.generate(
+          const EntryPasswordGeneratorOptions(length: 8),
+        );
+
+        expect(password.length, 12);
+        for (final char in EntryPasswordGenerator.ambiguousCharacters) {
+          expect(password.contains(char), isFalse);
+        }
+        expect(RegExp(r'[a-z]').hasMatch(password), isTrue);
+        expect(RegExp(r'[A-Z]').hasMatch(password), isTrue);
+        expect(RegExp(r'[0-9]').hasMatch(password), isTrue);
+        expect(RegExp(r'[^A-Za-z0-9]').hasMatch(password), isTrue);
+      },
+    );
   });
 
   group('Vault filters visibility', () {
@@ -168,6 +187,40 @@ void main() {
       expect(report.weak, 2);
       expect(report.reused, 2);
       expect(report.reusedGroups, 1);
+    });
+
+    test('counts never opened, rarely used, large history and old trash', () {
+      final now = DateTime.utc(2026, 2, 1);
+      final neverOpened = _entry(
+        id: 'never',
+        password: 'StrongPassword12!',
+        updatedAt: now,
+        openCount: 0,
+      );
+      final largeHistory = _entry(
+        id: 'history',
+        password: 'StrongPassword34!',
+        updatedAt: now,
+        openCount: 2,
+        historyLength: 5,
+      );
+      final oldTrash = _entry(
+        id: 'trash',
+        password: 'StrongPassword56!',
+        updatedAt: now,
+        deletedAt: now.subtract(const Duration(days: 31)),
+      );
+
+      final report = PasswordHealthService.analyze(
+        [neverOpened, largeHistory, oldTrash],
+        now: now,
+        trashRetention: TrashRetentionOption.never,
+      );
+
+      expect(report.neverOpened, 1);
+      expect(report.rarelyUsed, 1);
+      expect(report.largeHistory, 1);
+      expect(report.oldTrash, 1);
     });
 
     test('returns concrete feedback messages', () {
@@ -288,7 +341,15 @@ VaultEntry _entry({
   DateTime? lastOpenedAt,
   int openCount = 0,
   DateTime? deletedAt,
+  int historyLength = 1,
 }) {
+  final history = List.generate(historyLength, (index) {
+    final isCurrent = index == historyLength - 1;
+    return VaultPasswordHistoryItem(
+      password: isCurrent ? password : '$password-$index',
+      changedAt: updatedAt.subtract(Duration(days: historyLength - index - 1)),
+    );
+  });
   return VaultEntry(
     id: id,
     title: id,
@@ -301,9 +362,7 @@ VaultEntry _entry({
     passwordUpdatedAt: updatedAt,
     lastOpenedAt: lastOpenedAt ?? updatedAt,
     openCount: openCount,
-    passwordHistory: [
-      VaultPasswordHistoryItem(password: password, changedAt: updatedAt),
-    ],
+    passwordHistory: history,
     deletedAt: deletedAt,
   );
 }

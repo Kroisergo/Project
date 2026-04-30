@@ -202,6 +202,84 @@ class VaultRepository {
     return newHeader;
   }
 
+  Future<VaultRekeyResult> changeMasterPassword({
+    required VaultHeader header,
+    required VaultData data,
+    required String currentPassword,
+    required String newPassword,
+    String? fileName,
+  }) async {
+    final validation = await loadAndDecrypt(
+      masterPassword: currentPassword,
+      fileName: fileName,
+    );
+    validation.key.dispose();
+
+    final sodium = await ref.read(sodiumProvider.future);
+    final params = CryptoParams(
+      memLimit: header.memLimit,
+      opsLimit: header.opsLimit,
+      parallelism: header.parallelism,
+    );
+    final salt = cryptoService.randomBytes(
+      sodium,
+      sodium.crypto.pwhash.saltBytes,
+    );
+    final nonce = cryptoService.randomBytes(
+      sodium,
+      sodium.crypto.aeadXChaCha20Poly1305IETF.nonceBytes,
+    );
+    final newKey = cryptoService.deriveKey(
+      sodium: sodium,
+      masterPassword: newPassword,
+      salt: salt,
+      params: params,
+    );
+    final newHeader = VaultHeader(
+      magic: header.magic,
+      formatVersion: header.formatVersion,
+      cipherId: header.cipherId,
+      kdf: header.kdf,
+      memLimit: header.memLimit,
+      opsLimit: header.opsLimit,
+      parallelism: header.parallelism,
+      saltB64: base64Encode(salt),
+      nonceB64: base64Encode(nonce),
+    );
+    final headerBytes = Uint8List.fromList(
+      utf8.encode(jsonEncode(newHeader.toJson())),
+    );
+    final plaintext = Uint8List.fromList(
+      utf8.encode(jsonEncode(data.toJson())),
+    );
+
+    try {
+      final cipherBytes = cryptoService.encrypt(
+        sodium: sodium,
+        plaintext: plaintext,
+        nonce: nonce,
+        key: newKey,
+        headerBytes: headerBytes,
+      );
+      final target = await fileService.vaultFileForName(fileName);
+      await fileService.writeVault(
+        target: target,
+        headerBytes: headerBytes,
+        cipherBytes: cipherBytes,
+      );
+      return VaultRekeyResult(
+        header: newHeader,
+        key: newKey,
+        fileName: p.basename(target.path),
+      );
+    } catch (_) {
+      newKey.dispose();
+      rethrow;
+    } finally {
+      plaintext.fillRange(0, plaintext.length, 0);
+    }
+  }
+
   void _validateHeader(VaultHeader header, SodiumSumo sodium) {
     if (header.magic != VaultConstants.magic) {
       throw const VaultLoadException('Magic inválido.');
@@ -271,6 +349,18 @@ class VaultOpenResult {
   VaultOpenResult({
     required this.header,
     required this.data,
+    required this.key,
+    required this.fileName,
+  });
+}
+
+class VaultRekeyResult {
+  final VaultHeader header;
+  final SecureKey key;
+  final String? fileName;
+
+  VaultRekeyResult({
+    required this.header,
     required this.key,
     required this.fileName,
   });

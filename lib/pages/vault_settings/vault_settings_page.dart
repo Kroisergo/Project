@@ -5,6 +5,7 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 import '../../models/vault_entry.dart';
+import '../../services/security/master_password_policy.dart';
 import '../../services/security/password_health_service.dart';
 import '../../services/security/trash_pin_service.dart';
 import '../../services/storage/preferences_service.dart';
@@ -12,9 +13,11 @@ import '../../services/storage/vault_file_service.dart';
 import '../../services/theme/theme_mode_controller.dart';
 import '../../services/vault/auto_lock_controller.dart';
 import '../../services/vault/trash_retention_policy.dart';
+import '../../services/vault/vault_repository.dart';
 import '../../services/vault/vault_state.dart';
 import '../../utils/constants.dart';
 import '../../utils/router_paths.dart';
+import '../../widgets/password_policy_status.dart';
 import '../unlock/unlock_page.dart';
 
 typedef _SettingsCategoryBuilder =
@@ -34,9 +37,11 @@ class _VaultSettingsPageState extends ConsumerState<VaultSettingsPage>
     with WidgetsBindingObserver {
   final _vaultFileService = VaultFileService();
   final _prefs = PreferencesService();
-  bool _busy = false;
   final _exportController = TextEditingController();
   final _importController = TextEditingController();
+  final _backupController = TextEditingController();
+
+  bool _busy = false;
   String _vaultFileName = VaultConstants.defaultVaultName;
   int _autoLockMinutes = 2;
   ThemeMode _themeMode = ThemeMode.system;
@@ -59,6 +64,7 @@ class _VaultSettingsPageState extends ConsumerState<VaultSettingsPage>
     _autoLock.cancel();
     _exportController.dispose();
     _importController.dispose();
+    _backupController.dispose();
     super.dispose();
   }
 
@@ -87,6 +93,7 @@ class _VaultSettingsPageState extends ConsumerState<VaultSettingsPage>
     _vaultFileName = normalized;
     _exportController.text = defaultExport;
     _importController.text = defaultExport;
+    _backupController.text = defaultExport;
     setState(() {
       _autoLockMinutes = minutes;
       _themeMode = savedThemeMode;
@@ -132,6 +139,17 @@ class _VaultSettingsPageState extends ConsumerState<VaultSettingsPage>
     }
   }
 
+  Future<void> _exportEmergencyVault({VoidCallback? onStateChanged}) async {
+    await _autoLock.restart();
+    if (!mounted) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => const _EmergencyExportDialog(),
+    );
+    if (confirmed != true) return;
+    await _exportVault(onStateChanged: onStateChanged);
+  }
+
   Future<void> _importVault({VoidCallback? onStateChanged}) async {
     await _autoLock.restart();
     if (!mounted) return;
@@ -166,13 +184,49 @@ class _VaultSettingsPageState extends ConsumerState<VaultSettingsPage>
     }
   }
 
+  Future<void> _verifyBackup({VoidCallback? onStateChanged}) async {
+    await _autoLock.restart();
+    if (!mounted) return;
+    setState(() => _busy = true);
+    onStateChanged?.call();
+    try {
+      final result = await _vaultFileService.validateVaultFileStructure(
+        _backupController.text,
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(result.message)));
+    } finally {
+      if (mounted) {
+        setState(() => _busy = false);
+        onStateChanged?.call();
+      }
+    }
+  }
+
+  Future<void> _changeMasterPassword({VoidCallback? onStateChanged}) async {
+    await _autoLock.restart();
+    if (!mounted) return;
+    final changed = await showDialog<bool>(
+      context: context,
+      builder: (context) => const _ChangeMasterPasswordDialog(),
+    );
+    if (changed != true) return;
+    onStateChanged?.call();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Palavra-passe mestra alterada com sucesso.'),
+      ),
+    );
+  }
+
   Future<void> _updateAutoLock(
     int minutes, {
     VoidCallback? onStateChanged,
   }) async {
-    setState(() {
-      _autoLockMinutes = minutes;
-    });
+    setState(() => _autoLockMinutes = minutes);
     onStateChanged?.call();
     await _prefs.setAutoLockMinutes(minutes);
     await _autoLock.refreshTimeout();
@@ -192,9 +246,7 @@ class _VaultSettingsPageState extends ConsumerState<VaultSettingsPage>
     ThemeMode mode, {
     VoidCallback? onStateChanged,
   }) async {
-    setState(() {
-      _themeMode = mode;
-    });
+    setState(() => _themeMode = mode);
     onStateChanged?.call();
     await ref.read(themeModeControllerProvider.notifier).setMode(mode);
     if (!mounted) return;
@@ -207,9 +259,7 @@ class _VaultSettingsPageState extends ConsumerState<VaultSettingsPage>
     TrashRetentionOption option, {
     VoidCallback? onStateChanged,
   }) async {
-    setState(() {
-      _trashRetention = option;
-    });
+    setState(() => _trashRetention = option);
     onStateChanged?.call();
     await _prefs.setTrashRetentionOption(option);
     if (!mounted) return;
@@ -312,77 +362,83 @@ class _VaultSettingsPageState extends ConsumerState<VaultSettingsPage>
           padding: const EdgeInsets.all(16),
           children: [
             _SettingsCategoryTile(
-              title: 'Dados / Backup',
-              subtitle: 'Exportar e importar cofre',
-              icon: Icons.folder_outlined,
+              title: 'Segurança',
+              subtitle: 'Palavra-passe mestra e proteções sensíveis',
+              icon: Icons.security_outlined,
               onTap: () => _openCategory(
-                title: 'Dados / Backup',
+                title: 'Segurança',
                 builder: (context, refresh) => [
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-                    child: TextFormField(
-                      controller: _exportController,
-                      decoration: const InputDecoration(
-                        labelText: 'Destino exportação (.vltx)',
-                      ),
-                    ),
-                  ),
                   ListTile(
-                    leading: const Icon(Icons.download_outlined),
-                    title: const Text('Exportar cofre'),
-                    subtitle: const Text('Guarda uma cópia cifrada (.vltx)'),
+                    leading: const Icon(Icons.password_outlined),
+                    title: const Text('Alterar palavra-passe mestra'),
+                    subtitle: const Text(
+                      'Re-cifra o cofre com nova palavra-passe',
+                    ),
                     onTap: _busy
                         ? null
                         : () async {
-                            await _exportVault(onStateChanged: refresh);
+                            await _changeMasterPassword(
+                              onStateChanged: refresh,
+                            );
                           },
                   ),
                   const Divider(height: 1),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-                    child: TextFormField(
-                      controller: _importController,
-                      decoration: const InputDecoration(
-                        labelText: 'Origem importação (.vltx)',
+                  for (final action in TrashPinAction.values) ...[
+                    SwitchListTile(
+                      secondary: const Icon(Icons.pin_outlined),
+                      title: Text(action.settingsTitle),
+                      subtitle: const Text('Opcional. Por defeito, sem PIN.'),
+                      value: _trashPinEnabled[action] ?? false,
+                      onChanged: _busy
+                          ? null
+                          : (enabled) async {
+                              await _updateTrashPin(
+                                action,
+                                enabled,
+                                onStateChanged: refresh,
+                              );
+                            },
+                    ),
+                    if (_trashPinEnabled[action] ?? false)
+                      ListTile(
+                        leading: const Icon(Icons.edit_outlined),
+                        title: const Text('Alterar PIN'),
+                        subtitle: Text(
+                          'Atualiza o ${action.settingsTitle.toLowerCase()}',
+                        ),
+                        onTap: _busy
+                            ? null
+                            : () async {
+                                await _changeTrashPin(
+                                  action,
+                                  onStateChanged: refresh,
+                                );
+                              },
                       ),
-                    ),
-                  ),
-                  ListTile(
-                    leading: const Icon(Icons.upload_outlined),
-                    title: const Text('Importar cofre'),
-                    subtitle: const Text(
-                      'Substitui o cofre atual pelo ficheiro selecionado',
-                    ),
-                    onTap: _busy
-                        ? null
-                        : () async {
-                            await _importVault(onStateChanged: refresh);
-                          },
-                  ),
-                  if (_busy)
-                    const Padding(
-                      padding: EdgeInsets.fromLTRB(16, 8, 16, 8),
-                      child: LinearProgressIndicator(),
-                    ),
+                  ],
                 ],
               ),
             ),
             const SizedBox(height: 16),
             _SettingsCategoryTile(
-              title: 'Saude',
-              subtitle: 'Resumo de palavras-passe e alertas',
-              icon: Icons.health_and_safety_outlined,
+              title: 'Cofre',
+              subtitle: 'Informação do cofre local',
+              icon: Icons.inventory_2_outlined,
               onTap: () => _openCategory(
-                title: 'Saude',
-                builder: (context, refresh) => const [
-                  _PasswordHealthDashboard(),
+                title: 'Cofre',
+                builder: (context, refresh) => [
+                  ListTile(
+                    leading: const Icon(Icons.insert_drive_file_outlined),
+                    title: const Text('Ficheiro ativo'),
+                    subtitle: Text(_vaultFileName),
+                  ),
                 ],
               ),
             ),
             const SizedBox(height: 16),
             _SettingsCategoryTile(
               title: 'Lixo',
-              subtitle: 'Gerir entradas eliminadas',
+              subtitle: 'Entradas eliminadas e retenção',
               icon: Icons.delete_outline,
               onTap: () => _openCategory(
                 title: 'Lixo',
@@ -425,74 +481,98 @@ class _VaultSettingsPageState extends ConsumerState<VaultSettingsPage>
                             },
                     ),
                   ),
-                  const Divider(height: 1),
-                  for (final action in TrashPinAction.values) ...[
-                    SwitchListTile(
-                      secondary: const Icon(Icons.pin_outlined),
-                      title: Text(action.settingsTitle),
-                      subtitle: const Text('Opcional. Por defeito, sem PIN.'),
-                      value: _trashPinEnabled[action] ?? false,
-                      onChanged: _busy
-                          ? null
-                          : (enabled) async {
-                              await _updateTrashPin(
-                                action,
-                                enabled,
-                                onStateChanged: refresh,
-                              );
-                            },
-                    ),
-                    if (_trashPinEnabled[action] ?? false)
-                      ListTile(
-                        leading: const Icon(Icons.edit_outlined),
-                        title: const Text('Alterar PIN'),
-                        subtitle: Text(
-                          'Atualiza o ${action.settingsTitle.toLowerCase()}',
-                        ),
-                        onTap: _busy
-                            ? null
-                            : () async {
-                                await _changeTrashPin(
-                                  action,
-                                  onStateChanged: refresh,
-                                );
-                              },
-                      ),
-                  ],
                 ],
               ),
             ),
             const SizedBox(height: 16),
             _SettingsCategoryTile(
-              title: 'Sessão',
-              subtitle: 'Auto-lock e sessão',
-              icon: Icons.lock_clock_outlined,
+              title: 'Dados / Backup',
+              subtitle: 'Exportar, importar e verificar backups',
+              icon: Icons.folder_outlined,
               onTap: () => _openCategory(
-                title: 'Sessão',
+                title: 'Dados / Backup',
                 builder: (context, refresh) => [
-                  ListTile(
-                    leading: const Icon(Icons.timer),
-                    title: const Text('Auto-lock'),
-                    subtitle: const Text('Tempo de inatividade até bloquear'),
-                    trailing: DropdownButton<int>(
-                      value: _autoLockMinutes,
-                      items: const [
-                        DropdownMenuItem(value: 0, child: Text('Nunca')),
-                        DropdownMenuItem(value: 1, child: Text('1 min')),
-                        DropdownMenuItem(value: 2, child: Text('2 min')),
-                        DropdownMenuItem(value: 5, child: Text('5 min')),
-                        DropdownMenuItem(value: 10, child: Text('10 min')),
-                      ],
-                      onChanged: _busy
-                          ? null
-                          : (value) async {
-                              await _updateAutoLock(
-                                value ?? 2,
-                                onStateChanged: refresh,
-                              );
-                            },
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                    child: TextFormField(
+                      controller: _exportController,
+                      decoration: const InputDecoration(
+                        labelText: 'Destino exportação (.vltx)',
+                      ),
                     ),
                   ),
+                  ListTile(
+                    leading: const Icon(Icons.download_outlined),
+                    title: const Text('Exportar cofre'),
+                    subtitle: const Text('Guarda uma cópia cifrada (.vltx)'),
+                    onTap: _busy
+                        ? null
+                        : () async {
+                            await _exportVault(onStateChanged: refresh);
+                          },
+                  ),
+                  const Divider(height: 1),
+                  ListTile(
+                    leading: const Icon(Icons.warning_amber_outlined),
+                    title: const Text('Exportação de emergência'),
+                    subtitle: const Text(
+                      'Exportação cifrada com aviso reforçado',
+                    ),
+                    onTap: _busy
+                        ? null
+                        : () async {
+                            await _exportEmergencyVault(
+                              onStateChanged: refresh,
+                            );
+                          },
+                  ),
+                  const Divider(height: 1),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                    child: TextFormField(
+                      controller: _backupController,
+                      decoration: const InputDecoration(
+                        labelText: 'Backup a verificar (.vltx)',
+                      ),
+                    ),
+                  ),
+                  ListTile(
+                    leading: const Icon(Icons.verified_outlined),
+                    title: const Text('Verificar backup'),
+                    subtitle: const Text('Valida a estrutura sem importar'),
+                    onTap: _busy
+                        ? null
+                        : () async {
+                            await _verifyBackup(onStateChanged: refresh);
+                          },
+                  ),
+                  const Divider(height: 1),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                    child: TextFormField(
+                      controller: _importController,
+                      decoration: const InputDecoration(
+                        labelText: 'Origem importação (.vltx)',
+                      ),
+                    ),
+                  ),
+                  ListTile(
+                    leading: const Icon(Icons.upload_outlined),
+                    title: const Text('Importar cofre'),
+                    subtitle: const Text(
+                      'Substitui o cofre atual pelo ficheiro selecionado',
+                    ),
+                    onTap: _busy
+                        ? null
+                        : () async {
+                            await _importVault(onStateChanged: refresh);
+                          },
+                  ),
+                  if (_busy)
+                    const Padding(
+                      padding: EdgeInsets.fromLTRB(16, 8, 16, 8),
+                      child: LinearProgressIndicator(),
+                    ),
                 ],
               ),
             ),
@@ -534,6 +614,52 @@ class _VaultSettingsPageState extends ConsumerState<VaultSettingsPage>
                             },
                     ),
                   ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+            _SettingsCategoryTile(
+              title: 'Sessão',
+              subtitle: 'Auto-lock e sessão',
+              icon: Icons.lock_clock_outlined,
+              onTap: () => _openCategory(
+                title: 'Sessão',
+                builder: (context, refresh) => [
+                  ListTile(
+                    leading: const Icon(Icons.timer),
+                    title: const Text('Auto-lock'),
+                    subtitle: const Text('Tempo de inatividade até bloquear'),
+                    trailing: DropdownButton<int>(
+                      value: _autoLockMinutes,
+                      items: const [
+                        DropdownMenuItem(value: 0, child: Text('Nunca')),
+                        DropdownMenuItem(value: 1, child: Text('1 min')),
+                        DropdownMenuItem(value: 2, child: Text('2 min')),
+                        DropdownMenuItem(value: 5, child: Text('5 min')),
+                        DropdownMenuItem(value: 10, child: Text('10 min')),
+                      ],
+                      onChanged: _busy
+                          ? null
+                          : (value) async {
+                              await _updateAutoLock(
+                                value ?? 2,
+                                onStateChanged: refresh,
+                              );
+                            },
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+            _SettingsCategoryTile(
+              title: 'Auditoria / Saúde',
+              subtitle: 'Resumo de palavras-passe e alertas',
+              icon: Icons.health_and_safety_outlined,
+              onTap: () => _openCategory(
+                title: 'Auditoria / Saúde',
+                builder: (context, refresh) => [
+                  _PasswordHealthDashboard(trashRetention: _trashRetention),
                 ],
               ),
             ),
@@ -616,6 +742,245 @@ class _SettingsCategoryPageState extends State<_SettingsCategoryPage> {
             child: Padding(
               padding: const EdgeInsets.symmetric(vertical: 4),
               child: Column(children: widget.builder(context, _refresh)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _EmergencyExportDialog extends StatefulWidget {
+  const _EmergencyExportDialog();
+
+  @override
+  State<_EmergencyExportDialog> createState() => _EmergencyExportDialogState();
+}
+
+class _EmergencyExportDialogState extends State<_EmergencyExportDialog> {
+  bool _accepted = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Exportação de emergência'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Text(
+            'Esta exportação cria uma cópia cifrada do cofre (.vltx). Guarda o ficheiro apenas num local seguro. Sem a palavra-passe mestra correta, não será possível recuperar os dados.',
+          ),
+          const SizedBox(height: 12),
+          CheckboxListTile(
+            contentPadding: EdgeInsets.zero,
+            value: _accepted,
+            onChanged: (value) => setState(() => _accepted = value ?? false),
+            title: const Text(
+              'Compreendo que sou responsável por guardar o ficheiro e a palavra-passe mestra.',
+            ),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(false),
+          child: const Text('Cancelar'),
+        ),
+        ElevatedButton(
+          onPressed: _accepted ? () => Navigator.of(context).pop(true) : null,
+          child: const Text('Exportar'),
+        ),
+      ],
+    );
+  }
+}
+
+class _ChangeMasterPasswordDialog extends ConsumerStatefulWidget {
+  const _ChangeMasterPasswordDialog();
+
+  @override
+  ConsumerState<_ChangeMasterPasswordDialog> createState() =>
+      _ChangeMasterPasswordDialogState();
+}
+
+class _ChangeMasterPasswordDialogState
+    extends ConsumerState<_ChangeMasterPasswordDialog> {
+  final _currentController = TextEditingController();
+  final _newController = TextEditingController();
+  final _confirmController = TextEditingController();
+  String? _currentError;
+  String? _newError;
+  String? _confirmError;
+  String? _generalError;
+  bool _submitting = false;
+
+  MasterPasswordPolicyResult get _newPolicy =>
+      MasterPasswordPolicy.evaluate(_newController.text);
+
+  @override
+  void dispose() {
+    _currentController.clear();
+    _newController.clear();
+    _confirmController.clear();
+    _currentController.dispose();
+    _newController.dispose();
+    _confirmController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submit() async {
+    final currentPassword = _currentController.text;
+    final newPassword = _newController.text;
+    final confirmPassword = _confirmController.text;
+    final policy = MasterPasswordPolicy.evaluate(newPassword);
+
+    setState(() {
+      _currentError = null;
+      _newError = null;
+      _confirmError = null;
+      _generalError = null;
+    });
+
+    var hasError = false;
+    if (currentPassword.isEmpty) {
+      _currentError = 'Introduz a palavra-passe mestra atual.';
+      hasError = true;
+    }
+    if (!policy.isValid) {
+      _newError = 'A nova palavra-passe mestra não cumpre os requisitos.';
+      hasError = true;
+    }
+    if (newPassword != confirmPassword) {
+      _confirmError = 'A confirmação não coincide.';
+      hasError = true;
+    }
+    if (hasError) {
+      setState(() {});
+      return;
+    }
+
+    setState(() => _submitting = true);
+    try {
+      await ref
+          .read(vaultProvider.notifier)
+          .changeMasterPassword(
+            currentPassword: currentPassword,
+            newPassword: newPassword,
+          );
+      if (!mounted) return;
+      _currentController.clear();
+      _newController.clear();
+      _confirmController.clear();
+      Navigator.of(context).pop(true);
+    } on VaultAuthException {
+      if (!mounted) return;
+      setState(() {
+        _currentError = 'Palavra-passe mestra atual incorreta.';
+        _submitting = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _generalError = 'Não foi possível alterar a palavra-passe: $e';
+        _submitting = false;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final policy = _newPolicy;
+    return AlertDialog(
+      title: const Text('Alterar palavra-passe mestra'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const _MasterPasswordWarning(),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _currentController,
+              obscureText: true,
+              decoration: InputDecoration(
+                labelText: 'Palavra-passe mestra atual',
+                errorText: _currentError,
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _newController,
+              obscureText: true,
+              onChanged: (_) => setState(() {}),
+              decoration: InputDecoration(
+                labelText: 'Nova palavra-passe mestra',
+                errorText: _newError,
+              ),
+            ),
+            const SizedBox(height: 12),
+            PasswordPolicyStatus(result: policy),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _confirmController,
+              obscureText: true,
+              decoration: InputDecoration(
+                labelText: 'Confirmar nova palavra-passe mestra',
+                errorText: _confirmError,
+              ),
+              onSubmitted: (_) async => _submit(),
+            ),
+            if (_generalError != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Text(
+                  _generalError!,
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                ),
+              ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: _submitting ? null : () => Navigator.of(context).pop(),
+          child: const Text('Cancelar'),
+        ),
+        ElevatedButton(
+          onPressed: _submitting ? null : _submit,
+          child: _submitting
+              ? const SizedBox(
+                  height: 18,
+                  width: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Text('Alterar'),
+        ),
+      ],
+    );
+  }
+}
+
+class _MasterPasswordWarning extends StatelessWidget {
+  const _MasterPasswordWarning();
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: colors.errorContainer.withValues(alpha: 0.35),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: colors.error.withValues(alpha: 0.35)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.warning_amber_outlined, color: colors.error),
+          const SizedBox(width: 8),
+          const Expanded(
+            child: Text(
+              'Se esqueceres a nova palavra-passe mestra, não será possível recuperar o cofre.',
             ),
           ),
         ],
@@ -956,18 +1321,17 @@ class _TrashPinPromptDialogState extends State<_TrashPinPromptDialog> {
 }
 
 class _PasswordHealthDashboard extends ConsumerWidget {
-  const _PasswordHealthDashboard();
+  final TrashRetentionOption trashRetention;
+
+  const _PasswordHealthDashboard({required this.trashRetention});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final entries = ref.watch(vaultProvider).data?.activeEntries ?? [];
-    final report = PasswordHealthService.analyze(entries);
-    final weakEntries = entries
-        .where(PasswordHealthService.isWeakEntry)
-        .toList();
-    final reusedEntries = entries
-        .where((entry) => PasswordHealthService.isReusedEntry(entries, entry))
-        .toList();
+    final entries = ref.watch(vaultProvider).data?.entries ?? [];
+    final report = PasswordHealthService.analyze(
+      entries,
+      trashRetention: trashRetention,
+    );
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -977,59 +1341,118 @@ class _PasswordHealthDashboard extends ConsumerWidget {
           child: Text(report.summary),
         ),
         const Divider(height: 1),
-        _HealthStatTile(label: 'Total de entradas', value: report.total),
-        _HealthStatTile(
+        _HealthStatTile(label: 'Total de entradas ativas', value: report.total),
+        _HealthIssueTile(
           label: 'Palavras-passe fracas',
           value: report.weak,
-          onTap: weakEntries.isEmpty
-              ? null
-              : () => _openHealthDetails(
-                  context,
-                  title: 'Palavras-passe fracas',
-                  entries: weakEntries,
-                  allEntries: entries,
-                ),
+          issue: PasswordHealthIssue.weak,
+          entries: entries,
+          trashRetention: trashRetention,
         ),
-        _HealthStatTile(
+        _HealthIssueTile(
           label: 'Palavras-passe reutilizadas',
           value: report.reused,
-          onTap: reusedEntries.isEmpty
-              ? null
-              : () => _openHealthDetails(
-                  context,
-                  title: 'Palavras-passe reutilizadas',
-                  entries: reusedEntries,
-                  allEntries: entries,
-                ),
+          issue: PasswordHealthIssue.reused,
+          entries: entries,
+          trashRetention: trashRetention,
         ),
         _HealthStatTile(
           label: 'Grupos com palavra-passe repetida',
           value: report.reusedGroups,
         ),
-        _HealthStatTile(label: 'A mudar pela recomendacao', value: report.old),
-        _HealthStatTile(label: 'Sem palavra-passe', value: report.empty),
-        _HealthStatTile(
+        _HealthIssueTile(
+          label: 'Palavras-passe antigas',
+          value: report.old,
+          issue: PasswordHealthIssue.old,
+          entries: entries,
+          trashRetention: trashRetention,
+        ),
+        _HealthIssueTile(
+          label: 'Sem palavra-passe',
+          value: report.empty,
+          issue: PasswordHealthIssue.empty,
+          entries: entries,
+          trashRetention: trashRetention,
+        ),
+        _HealthIssueTile(
           label: 'Sem categoria/tag',
           value: report.uncategorized,
+          issue: PasswordHealthIssue.uncategorized,
+          entries: entries,
+          trashRetention: trashRetention,
+        ),
+        _HealthIssueTile(
+          label: 'Nunca abertas',
+          value: report.neverOpened,
+          issue: PasswordHealthIssue.neverOpened,
+          entries: entries,
+          trashRetention: trashRetention,
+        ),
+        _HealthIssueTile(
+          label: 'Pouco usadas',
+          value: report.rarelyUsed,
+          issue: PasswordHealthIssue.rarelyUsed,
+          entries: entries,
+          trashRetention: trashRetention,
+        ),
+        _HealthIssueTile(
+          label: 'Histórico grande',
+          value: report.largeHistory,
+          issue: PasswordHealthIssue.largeHistory,
+          entries: entries,
+          trashRetention: trashRetention,
+        ),
+        _HealthIssueTile(
+          label: 'No Lixo há muito tempo',
+          value: report.oldTrash,
+          issue: PasswordHealthIssue.oldTrash,
+          entries: entries,
+          trashRetention: trashRetention,
         ),
       ],
     );
   }
+}
 
-  void _openHealthDetails(
-    BuildContext context, {
-    required String title,
-    required List<VaultEntry> entries,
-    required List<VaultEntry> allEntries,
-  }) {
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (context) => _PasswordHealthDetailsPage(
-          title: title,
-          entries: entries,
-          allEntries: allEntries,
-        ),
-      ),
+class _HealthIssueTile extends StatelessWidget {
+  final String label;
+  final int value;
+  final PasswordHealthIssue issue;
+  final List<VaultEntry> entries;
+  final TrashRetentionOption trashRetention;
+
+  const _HealthIssueTile({
+    required this.label,
+    required this.value,
+    required this.issue,
+    required this.entries,
+    required this.trashRetention,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final affectedEntries = PasswordHealthService.entriesForIssue(
+      entries,
+      issue,
+      trashRetention: trashRetention,
+    );
+    return _HealthStatTile(
+      label: label,
+      value: value,
+      onTap: affectedEntries.isEmpty
+          ? null
+          : () {
+              Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (context) => _PasswordHealthDetailsPage(
+                    title: label,
+                    issue: issue,
+                    entries: affectedEntries,
+                    allEntries: entries,
+                  ),
+                ),
+              );
+            },
     );
   }
 }
@@ -1064,11 +1487,13 @@ class _HealthStatTile extends StatelessWidget {
 
 class _PasswordHealthDetailsPage extends StatelessWidget {
   final String title;
+  final PasswordHealthIssue issue;
   final List<VaultEntry> entries;
   final List<VaultEntry> allEntries;
 
   const _PasswordHealthDetailsPage({
     required this.title,
+    required this.issue,
     required this.entries,
     required this.allEntries,
   });
@@ -1083,7 +1508,8 @@ class _PasswordHealthDetailsPage extends StatelessWidget {
         separatorBuilder: (context, index) => const Divider(height: 1),
         itemBuilder: (context, index) {
           final entry = entries[index];
-          final alerts = PasswordHealthService.alertsForEntry(
+          final reason = PasswordHealthService.reasonForIssue(
+            issue: issue,
             entries: allEntries,
             entry: entry,
           );
@@ -1097,12 +1523,14 @@ class _PasswordHealthDetailsPage extends StatelessWidget {
             subtitle: Text(
               [
                 if (entry.username.isNotEmpty) entry.username,
-                ...alerts,
+                reason,
               ].join('\n'),
             ),
-            isThreeLine: true,
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () => context.push(RouterPaths.vaultEntryView(entry.id)),
+            isThreeLine: entry.username.isNotEmpty,
+            trailing: entry.isDeleted ? null : const Icon(Icons.chevron_right),
+            onTap: entry.isDeleted
+                ? null
+                : () => context.push(RouterPaths.vaultEntryView(entry.id)),
           );
         },
       ),

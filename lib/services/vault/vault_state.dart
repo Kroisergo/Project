@@ -347,6 +347,31 @@ class VaultNotifier extends StateNotifier<VaultState> {
     );
   }
 
+  Future<void> changeMasterPassword({
+    required String currentPassword,
+    required String newPassword,
+  }) async {
+    final current = state;
+    if (!current.isUnlocked) {
+      throw const VaultLoadException('Sessão bloqueada.');
+    }
+
+    final result = await _repo.changeMasterPassword(
+      header: current.header!,
+      data: current.data!,
+      currentPassword: currentPassword,
+      newPassword: newPassword,
+      fileName: current.fileName,
+    );
+    current.key?.dispose();
+    state = VaultState(
+      header: result.header,
+      data: current.data,
+      key: result.key,
+      fileName: result.fileName ?? current.fileName,
+    );
+  }
+
   void clear() {
     state.key?.dispose();
     state = const VaultState(
