@@ -9,6 +9,7 @@ import '../../services/vault/auto_lock_controller.dart';
 import '../../services/vault/trash_retention_policy.dart';
 import '../../services/vault/vault_state.dart';
 import '../../utils/time_labels.dart';
+import '../../widgets/sensitive_action_confirmation.dart';
 import '../unlock/unlock_page.dart';
 
 class VaultTrashPage extends ConsumerStatefulWidget {
@@ -140,6 +141,14 @@ class _VaultTrashPageState extends ConsumerState<VaultTrashPage>
     if (confirmed != true || !mounted) return;
     if (!await _verifyPinIfNeeded(TrashPinAction.delete)) return;
     if (!mounted) return;
+    final allowed = await confirmSensitiveAction(
+      context: context,
+      ref: ref,
+      title: 'Confirmar eliminação definitiva',
+      message:
+          'Introduz a palavra-passe mestra para eliminar entradas definitivamente.',
+    );
+    if (!allowed || !mounted) return;
 
     setState(() => _busy = true);
     try {
@@ -169,6 +178,13 @@ class _VaultTrashPageState extends ConsumerState<VaultTrashPage>
     if (confirmed != true || !mounted) return;
     if (!await _verifyPinIfNeeded(TrashPinAction.delete)) return;
     if (!mounted) return;
+    final allowed = await confirmSensitiveAction(
+      context: context,
+      ref: ref,
+      title: 'Confirmar esvaziar Lixo',
+      message: 'Introduz a palavra-passe mestra para esvaziar o Lixo.',
+    );
+    if (!allowed || !mounted) return;
 
     setState(() => _busy = true);
     try {

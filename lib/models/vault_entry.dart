@@ -174,13 +174,8 @@ class VaultEntry {
       }
     }
 
-    if (history.isEmpty || history.last.password != currentPassword) {
-      history.add(
-        VaultPasswordHistoryItem(
-          password: currentPassword,
-          changedAt: fallbackChangedAt,
-        ),
-      );
+    if (history.isNotEmpty && history.last.password == currentPassword) {
+      history.removeLast();
     }
     return history;
   }

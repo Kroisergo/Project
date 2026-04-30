@@ -1,4 +1,5 @@
 import 'vault_entry.dart';
+import '../utils/constants.dart';
 
 class VaultData {
   final int version;
@@ -37,7 +38,7 @@ class VaultData {
     final updatedAt = (parsedUpdatedAt ?? fallbackUpdatedAt).toUtc();
     final entriesJson = json['entries'] as List<dynamic>? ?? [];
     return VaultData(
-      version: json['version'] as int? ?? 1,
+      version: json['version'] as int? ?? VaultConstants.currentDataVersion,
       updatedAt: updatedAt,
       entries: entriesJson
           .map(

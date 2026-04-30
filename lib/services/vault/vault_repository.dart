@@ -12,6 +12,7 @@ import '../crypto/crypto_params.dart';
 import '../crypto/crypto_service.dart';
 import '../crypto/sodium_provider.dart';
 import '../storage/vault_file_service.dart';
+import 'vault_data_migrator.dart';
 
 class VaultRepository {
   VaultRepository({
@@ -125,7 +126,10 @@ class VaultRepository {
       if (decodedData is! Map) {
         throw const FormatException('Vault data is not an object.');
       }
-      data = VaultData.fromJson(Map<String, dynamic>.from(decodedData));
+      final migratedData = VaultDataMigrator.migrate(
+        Map<String, dynamic>.from(decodedData),
+      );
+      data = VaultData.fromJson(migratedData);
     } catch (_) {
       key.dispose();
       throw const VaultLoadException(

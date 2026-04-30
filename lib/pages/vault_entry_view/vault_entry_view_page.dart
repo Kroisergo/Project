@@ -12,6 +12,7 @@ import '../../services/vault/auto_lock_controller.dart';
 import '../../services/vault/vault_state.dart';
 import '../../utils/router_paths.dart';
 import '../../utils/time_labels.dart';
+import '../../widgets/sensitive_action_confirmation.dart';
 import '../unlock/unlock_page.dart';
 import '../vault_home/vault_home_page.dart';
 
@@ -78,6 +79,65 @@ class _VaultEntryViewPageState extends ConsumerState<VaultEntryViewPage>
         _lastCopiedValue = null;
       }
     });
+  }
+
+  Future<bool> _confirmHistoryAccess({
+    required String title,
+    required String message,
+  }) {
+    return confirmSensitiveAction(
+      context: context,
+      ref: ref,
+      title: title,
+      message: message,
+    );
+  }
+
+  Future<bool> _copyHistoryPassword(String label, String value) async {
+    final allowed = await _confirmHistoryAccess(
+      title: 'Confirmar acesso ao histórico',
+      message:
+          'Introduz a palavra-passe mestra para copiar uma palavra-passe antiga.',
+    );
+    if (!allowed || !mounted) return false;
+    await _copy(label, value);
+    return true;
+  }
+
+  Future<bool> _deleteHistoryItem(String entryId, int historyIndex) async {
+    await _autoLock.restart();
+    if (!mounted) return false;
+    final allowed = await _confirmHistoryAccess(
+      title: 'Confirmar remoção do histórico',
+      message:
+          'Introduz a palavra-passe mestra para apagar esta palavra-passe antiga do histórico.',
+    );
+    if (!allowed || !mounted) return false;
+    await ref
+        .read(vaultProvider.notifier)
+        .removePasswordHistoryItem(id: entryId, historyIndex: historyIndex);
+    if (!mounted) return false;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Palavra-passe antiga apagada.')),
+    );
+    return true;
+  }
+
+  Future<bool> _clearPasswordHistory(String entryId) async {
+    await _autoLock.restart();
+    if (!mounted) return false;
+    final allowed = await _confirmHistoryAccess(
+      title: 'Confirmar limpeza do histórico',
+      message:
+          'Introduz a palavra-passe mestra para limpar o histórico desta entrada.',
+    );
+    if (!allowed || !mounted) return false;
+    await ref.read(vaultProvider.notifier).clearPasswordHistory(entryId);
+    if (!mounted) return false;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Histórico de palavra-passes limpo.')),
+    );
+    return true;
   }
 
   Future<void> _clearClipboardIfCurrent() async {
@@ -149,6 +209,15 @@ class _VaultEntryViewPageState extends ConsumerState<VaultEntryViewPage>
         entry: entry,
         recommendation: recommendation,
         onCopy: _copy,
+        onCopyHistory: _copyHistoryPassword,
+        onDeleteHistoryItem: (historyIndex) =>
+            _deleteHistoryItem(entry.id, historyIndex),
+        onClearHistory: () => _clearPasswordHistory(entry.id),
+        onRevealHistory: () => _confirmHistoryAccess(
+          title: 'Confirmar acesso ao histórico',
+          message:
+              'Introduz a palavra-passe mestra para revelar palavras-passe antigas.',
+        ),
       ),
     );
   }
@@ -353,11 +422,19 @@ class _EntryDetailsSheet extends StatelessWidget {
   final VaultEntry entry;
   final PasswordEntryRecommendation? recommendation;
   final Future<void> Function(String label, String value) onCopy;
+  final Future<bool> Function(String label, String value) onCopyHistory;
+  final Future<bool> Function(int historyIndex) onDeleteHistoryItem;
+  final Future<bool> Function() onClearHistory;
+  final Future<bool> Function() onRevealHistory;
 
   const _EntryDetailsSheet({
     required this.entry,
     required this.recommendation,
     required this.onCopy,
+    required this.onCopyHistory,
+    required this.onDeleteHistoryItem,
+    required this.onClearHistory,
+    required this.onRevealHistory,
   });
 
   Future<void> _showHistory(BuildContext context) {
@@ -365,8 +442,11 @@ class _EntryDetailsSheet extends StatelessWidget {
       context: context,
       isScrollControlled: true,
       builder: (context) => _PasswordHistorySheet(
-        history: entry.passwordHistory.reversed.toList(),
-        onCopy: onCopy,
+        history: entry.passwordHistory,
+        onCopy: onCopyHistory,
+        onDelete: onDeleteHistoryItem,
+        onClear: onClearHistory,
+        onReveal: onRevealHistory,
       ),
     );
   }
@@ -455,9 +535,18 @@ class _EntryDetailsSheet extends StatelessWidget {
 
 class _PasswordHistorySheet extends StatefulWidget {
   final List<VaultPasswordHistoryItem> history;
-  final Future<void> Function(String label, String value) onCopy;
+  final Future<bool> Function(String label, String value) onCopy;
+  final Future<bool> Function(int historyIndex) onDelete;
+  final Future<bool> Function() onClear;
+  final Future<bool> Function() onReveal;
 
-  const _PasswordHistorySheet({required this.history, required this.onCopy});
+  const _PasswordHistorySheet({
+    required this.history,
+    required this.onCopy,
+    required this.onDelete,
+    required this.onClear,
+    required this.onReveal,
+  });
 
   @override
   State<_PasswordHistorySheet> createState() => _PasswordHistorySheetState();
@@ -465,6 +554,86 @@ class _PasswordHistorySheet extends StatefulWidget {
 
 class _PasswordHistorySheetState extends State<_PasswordHistorySheet> {
   bool _showPasswords = false;
+  late List<VaultPasswordHistoryItem> _history;
+
+  @override
+  void initState() {
+    super.initState();
+    _history = [...widget.history];
+  }
+
+  Future<void> _toggleVisibility() async {
+    if (_showPasswords) {
+      setState(() => _showPasswords = false);
+      return;
+    }
+    final allowed = await widget.onReveal();
+    if (!allowed || !mounted) return;
+    setState(() => _showPasswords = true);
+  }
+
+  Future<void> _copyItem(VaultPasswordHistoryItem item) async {
+    await widget.onCopy('Palavra-passe anterior', item.password);
+  }
+
+  Future<void> _deleteItem(int historyIndex) async {
+    final confirmed = await _confirm(
+      title: 'Apagar palavra-passe antiga?',
+      message: 'Esta entrada do histórico será removida do cofre.',
+      action: 'Apagar',
+    );
+    if (confirmed != true || !mounted) return;
+    final removed = await widget.onDelete(historyIndex);
+    if (!removed || !mounted) return;
+    setState(() {
+      _history.removeAt(historyIndex);
+      if (_history.isEmpty) _showPasswords = false;
+    });
+  }
+
+  Future<void> _clearHistory() async {
+    final confirmed = await _confirm(
+      title: 'Limpar histórico?',
+      message:
+          'Todas as palavras-passe antigas desta entrada serão removidas do cofre.',
+      action: 'Limpar',
+    );
+    if (confirmed != true || !mounted) return;
+    final cleared = await widget.onClear();
+    if (!cleared || !mounted) return;
+    setState(() {
+      _history.clear();
+      _showPasswords = false;
+    });
+  }
+
+  Future<bool?> _confirm({
+    required String title,
+    required String message,
+    required String action,
+  }) {
+    return showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(title),
+        content: Text(message),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancelar'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Theme.of(context).colorScheme.error,
+              foregroundColor: Theme.of(context).colorScheme.onError,
+            ),
+            onPressed: () => Navigator.of(context).pop(true),
+            child: Text(action),
+          ),
+        ],
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -489,11 +658,7 @@ class _PasswordHistorySheetState extends State<_PasswordHistorySheet> {
                   ),
                 ),
                 TextButton.icon(
-                  onPressed: () {
-                    setState(() {
-                      _showPasswords = !_showPasswords;
-                    });
-                  },
+                  onPressed: _history.isEmpty ? null : _toggleVisibility,
                   icon: Icon(
                     _showPasswords ? Icons.visibility_off : Icons.visibility,
                   ),
@@ -502,40 +667,53 @@ class _PasswordHistorySheetState extends State<_PasswordHistorySheet> {
               ],
             ),
             const SizedBox(height: 8),
+            const _PasswordHistoryNotice(),
+            if (_history.isNotEmpty)
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton.icon(
+                  onPressed: _clearHistory,
+                  icon: const Icon(Icons.delete_sweep_outlined),
+                  label: const Text('Limpar'),
+                ),
+              ),
             ConstrainedBox(
               constraints: BoxConstraints(
                 maxHeight: MediaQuery.of(context).size.height * 0.6,
               ),
-              child: widget.history.isEmpty
+              child: _history.isEmpty
                   ? const Padding(
                       padding: EdgeInsets.only(bottom: 16),
                       child: Text('Sem histórico de palavra-passes.'),
                     )
                   : ListView.separated(
                       shrinkWrap: true,
-                      itemCount: widget.history.length,
+                      itemCount: _history.length,
                       separatorBuilder: (_, index) => const Divider(height: 1),
                       itemBuilder: (context, index) {
-                        final item = widget.history[index];
+                        final historyIndex = _history.length - 1 - index;
+                        final item = _history[historyIndex];
                         return ListTile(
                           contentPadding: EdgeInsets.zero,
-                          title: Text(
-                            index == 0
-                                ? 'Palavra-passe atual'
-                                : 'Palavra-passe anterior $index',
-                          ),
+                          title: Text('Palavra-passe anterior ${index + 1}'),
                           subtitle: Text(
                             '${_showPasswords ? item.password : '********'}\nAlterada em ${formatDateTime(item.changedAt)}',
                           ),
                           isThreeLine: true,
-                          trailing: IconButton(
-                            icon: const Icon(Icons.copy),
-                            onPressed: () => widget.onCopy(
-                              index == 0
-                                  ? 'Palavra-passe atual'
-                                  : 'Palavra-passe anterior',
-                              item.password,
-                            ),
+                          trailing: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              IconButton(
+                                tooltip: 'Copiar',
+                                icon: const Icon(Icons.copy),
+                                onPressed: () => _copyItem(item),
+                              ),
+                              IconButton(
+                                tooltip: 'Apagar',
+                                icon: const Icon(Icons.delete_outline),
+                                onPressed: () => _deleteItem(historyIndex),
+                              ),
+                            ],
                           ),
                         );
                       },
@@ -543,6 +721,33 @@ class _PasswordHistorySheetState extends State<_PasswordHistorySheet> {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _PasswordHistoryNotice extends StatelessWidget {
+  const _PasswordHistoryNotice();
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(
+            Icons.info_outline,
+            size: 18,
+            color: Theme.of(context).colorScheme.primary,
+          ),
+          const SizedBox(width: 8),
+          const Expanded(
+            child: Text(
+              'O histórico guarda palavras-passe antigas cifradas dentro do cofre.',
+            ),
+          ),
+        ],
       ),
     );
   }

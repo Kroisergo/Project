@@ -28,7 +28,10 @@ class VaultService {
   }) async {
     final sodium = await ref.read(sodiumProvider.future);
     final kdfParams = cryptoService.defaultParams(sodium);
-    final salt = cryptoService.randomBytes(sodium, sodium.crypto.pwhash.saltBytes);
+    final salt = cryptoService.randomBytes(
+      sodium,
+      sodium.crypto.pwhash.saltBytes,
+    );
     final nonce = cryptoService.randomBytes(
       sodium,
       sodium.crypto.aeadXChaCha20Poly1305IETF.nonceBytes,
@@ -42,7 +45,7 @@ class VaultService {
     );
 
     final vaultData = VaultData(
-      version: VaultConstants.formatVersion,
+      version: VaultConstants.currentDataVersion,
       updatedAt: DateTime.now().toUtc(),
       entries: const [],
     );
@@ -50,11 +53,7 @@ class VaultService {
     final plaintext = Uint8List.fromList(
       utf8.encode(jsonEncode(vaultData.toJson())),
     );
-    final header = _buildHeader(
-      kdfParams: kdfParams,
-      salt: salt,
-      nonce: nonce,
-    );
+    final header = _buildHeader(kdfParams: kdfParams, salt: salt, nonce: nonce);
     final headerBytes = Uint8List.fromList(
       utf8.encode(jsonEncode(header.toJson())),
     );

@@ -18,6 +18,7 @@ import '../../services/vault/vault_state.dart';
 import '../../utils/constants.dart';
 import '../../utils/router_paths.dart';
 import '../../widgets/password_policy_status.dart';
+import '../../widgets/sensitive_action_confirmation.dart';
 import '../unlock/unlock_page.dart';
 
 typedef _SettingsCategoryBuilder =
@@ -46,6 +47,8 @@ class _VaultSettingsPageState extends ConsumerState<VaultSettingsPage>
   int _autoLockMinutes = 2;
   ThemeMode _themeMode = ThemeMode.system;
   TrashRetentionOption _trashRetention = TrashRetentionPolicy.defaultOption;
+  bool _requireSensitiveActionConfirmation = false;
+  bool _savePasswordHistory = true;
   Map<TrashPinAction, bool> _trashPinEnabled = const {};
   late final AutoLockController _autoLock;
 
@@ -82,6 +85,9 @@ class _VaultSettingsPageState extends ConsumerState<VaultSettingsPage>
     final minutes = await _prefs.getAutoLockMinutes();
     final savedThemeMode = await _prefs.getThemeMode();
     final trashRetention = await _prefs.getTrashRetentionOption();
+    final requireSensitiveActionConfirmation = await _prefs
+        .getRequireSensitiveActionConfirmation();
+    final savePasswordHistory = await _prefs.getSavePasswordHistory();
     final trashPinService = ref.read(trashPinServiceProvider);
     final trashPinEnabled = <TrashPinAction, bool>{};
     for (final action in TrashPinAction.values) {
@@ -98,6 +104,8 @@ class _VaultSettingsPageState extends ConsumerState<VaultSettingsPage>
       _autoLockMinutes = minutes;
       _themeMode = savedThemeMode;
       _trashRetention = trashRetention;
+      _requireSensitiveActionConfirmation = requireSensitiveActionConfirmation;
+      _savePasswordHistory = savePasswordHistory;
       _trashPinEnabled = trashPinEnabled;
     });
   }
@@ -113,11 +121,19 @@ class _VaultSettingsPageState extends ConsumerState<VaultSettingsPage>
   Future<void> _exportVault({VoidCallback? onStateChanged}) async {
     await _autoLock.restart();
     if (!mounted) return;
-    setState(() => _busy = true);
-    onStateChanged?.call();
     try {
       final exportPath = _exportController.text.trim();
       if (exportPath.isEmpty) throw Exception('Indica o caminho de destino.');
+      final allowed = await confirmSensitiveAction(
+        context: context,
+        ref: ref,
+        title: 'Confirmar exportação',
+        message:
+            'Introduz a palavra-passe mestra para exportar uma cópia cifrada do cofre.',
+      );
+      if (!allowed || !mounted) return;
+      setState(() => _busy = true);
+      onStateChanged?.call();
       await _vaultFileService.exportVaultTo(
         exportPath,
         fileName: _vaultFileName,
@@ -153,13 +169,21 @@ class _VaultSettingsPageState extends ConsumerState<VaultSettingsPage>
   Future<void> _importVault({VoidCallback? onStateChanged}) async {
     await _autoLock.restart();
     if (!mounted) return;
-    setState(() => _busy = true);
-    onStateChanged?.call();
     try {
       final importPath = _importController.text.trim();
       if (importPath.isEmpty) {
         throw Exception('Indica o caminho do ficheiro a importar.');
       }
+      final allowed = await confirmSensitiveAction(
+        context: context,
+        ref: ref,
+        title: 'Confirmar importação',
+        message:
+            'Introduz a palavra-passe mestra para substituir o cofre atual pelo ficheiro selecionado.',
+      );
+      if (!allowed || !mounted) return;
+      setState(() => _busy = true);
+      onStateChanged?.call();
       await _vaultFileService.importVaultFrom(
         importPath,
         targetFileName: _vaultFileName,
@@ -270,6 +294,44 @@ class _VaultSettingsPageState extends ConsumerState<VaultSettingsPage>
     );
   }
 
+  Future<void> _updateRequireSensitiveActionConfirmation(
+    bool value, {
+    VoidCallback? onStateChanged,
+  }) async {
+    setState(() => _requireSensitiveActionConfirmation = value);
+    onStateChanged?.call();
+    await _prefs.setRequireSensitiveActionConfirmation(value);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          value
+              ? 'Confirmação adicional ativada.'
+              : 'Confirmação adicional desativada.',
+        ),
+      ),
+    );
+  }
+
+  Future<void> _updateSavePasswordHistory(
+    bool value, {
+    VoidCallback? onStateChanged,
+  }) async {
+    setState(() => _savePasswordHistory = value);
+    onStateChanged?.call();
+    await _prefs.setSavePasswordHistory(value);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          value
+              ? 'Histórico de palavra-passes ativado.'
+              : 'Histórico de palavra-passes desativado.',
+        ),
+      ),
+    );
+  }
+
   Future<void> _updateTrashPin(
     TrashPinAction action,
     bool enabled, {
@@ -295,6 +357,15 @@ class _VaultSettingsPageState extends ConsumerState<VaultSettingsPage>
         ),
       );
       if (confirmed != true) return;
+      if (!mounted) return;
+      final allowed = await confirmSensitiveAction(
+        context: context,
+        ref: ref,
+        title: 'Confirmar desativação do PIN',
+        message:
+            'Introduz a palavra-passe mestra para desativar esta proteção do Lixo.',
+      );
+      if (!allowed) return;
       await service.disable(action);
     }
 
@@ -378,6 +449,40 @@ class _VaultSettingsPageState extends ConsumerState<VaultSettingsPage>
                         ? null
                         : () async {
                             await _changeMasterPassword(
+                              onStateChanged: refresh,
+                            );
+                          },
+                  ),
+                  const Divider(height: 1),
+                  SwitchListTile(
+                    secondary: const Icon(Icons.verified_user_outlined),
+                    title: const Text('Pedir confirmação para ações sensíveis'),
+                    subtitle: const Text(
+                      'Quando ativo, exportar, importar, apagar definitivamente ou alterar proteções exige confirmação adicional.',
+                    ),
+                    value: _requireSensitiveActionConfirmation,
+                    onChanged: _busy
+                        ? null
+                        : (value) async {
+                            await _updateRequireSensitiveActionConfirmation(
+                              value,
+                              onStateChanged: refresh,
+                            );
+                          },
+                  ),
+                  const Divider(height: 1),
+                  SwitchListTile(
+                    secondary: const Icon(Icons.history_outlined),
+                    title: const Text('Guardar histórico de palavra-passes'),
+                    subtitle: const Text(
+                      'Quando ativo, as palavras-passe antigas ficam guardadas cifradas dentro do cofre.',
+                    ),
+                    value: _savePasswordHistory,
+                    onChanged: _busy
+                        ? null
+                        : (value) async {
+                            await _updateSavePasswordHistory(
+                              value,
                               onStateChanged: refresh,
                             );
                           },

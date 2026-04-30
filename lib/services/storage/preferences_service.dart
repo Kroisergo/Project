@@ -93,6 +93,26 @@ class PreferencesService {
     await prefs.setString(PrefsKeys.trashRetention, option.preferenceValue);
   }
 
+  Future<bool> getRequireSensitiveActionConfirmation() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(PrefsKeys.requireSensitiveActionConfirmation) ?? false;
+  }
+
+  Future<void> setRequireSensitiveActionConfirmation(bool value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(PrefsKeys.requireSensitiveActionConfirmation, value);
+  }
+
+  Future<bool> getSavePasswordHistory() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(PrefsKeys.savePasswordHistory) ?? true;
+  }
+
+  Future<void> setSavePasswordHistory(bool value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(PrefsKeys.savePasswordHistory, value);
+  }
+
   Future<ThemeMode> getThemeMode() async {
     final prefs = await SharedPreferences.getInstance();
     return _themeModeFromPreference(prefs.getString(PrefsKeys.appThemeMode));

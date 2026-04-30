@@ -5,6 +5,7 @@ import 'package:uuid/uuid.dart';
 import '../../models/vault_data.dart';
 import '../../models/vault_entry.dart';
 import '../../models/vault_header.dart';
+import '../storage/preferences_service.dart';
 import 'trash_retention_policy.dart';
 import 'vault_repository.dart';
 
@@ -25,12 +26,13 @@ class VaultState {
 }
 
 class VaultNotifier extends StateNotifier<VaultState> {
-  VaultNotifier(this._repo)
+  VaultNotifier(this._repo, this._prefs)
     : super(
         const VaultState(header: null, data: null, key: null, fileName: null),
       );
 
   final VaultRepository _repo;
+  final PreferencesService _prefs;
   final _uuid = const Uuid();
 
   void setVault(
@@ -70,9 +72,7 @@ class VaultNotifier extends StateNotifier<VaultState> {
       passwordUpdatedAt: now,
       lastOpenedAt: now,
       openCount: 0,
-      passwordHistory: [
-        VaultPasswordHistoryItem(password: password, changedAt: now),
-      ],
+      passwordHistory: const [],
     );
     final newData = VaultData(
       version: current.data!.version,
@@ -106,13 +106,14 @@ class VaultNotifier extends StateNotifier<VaultState> {
     if (!current.isUnlocked) return;
 
     final now = DateTime.now().toUtc();
+    final savePasswordHistory = await _prefs.getSavePasswordHistory();
     final entries = current.data!.entries.map((e) {
       if (e.id != id) return e;
       final passwordChanged = e.password != password;
-      final passwordHistory = passwordChanged
+      final passwordHistory = passwordChanged && savePasswordHistory
           ? [
               ...e.passwordHistory,
-              VaultPasswordHistoryItem(password: password, changedAt: now),
+              VaultPasswordHistoryItem(password: e.password, changedAt: now),
             ]
           : e.passwordHistory;
       return e.copyWith(
@@ -347,6 +348,78 @@ class VaultNotifier extends StateNotifier<VaultState> {
     );
   }
 
+  Future<void> removePasswordHistoryItem({
+    required String id,
+    required int historyIndex,
+  }) async {
+    final current = state;
+    if (!current.isUnlocked || historyIndex < 0) return;
+
+    final now = DateTime.now().toUtc();
+    var changed = false;
+    final entries = current.data!.entries.map((entry) {
+      if (entry.id != id || historyIndex >= entry.passwordHistory.length) {
+        return entry;
+      }
+      final history = [...entry.passwordHistory]..removeAt(historyIndex);
+      changed = true;
+      return entry.copyWith(updatedAt: now, passwordHistory: history);
+    }).toList();
+
+    if (!changed) return;
+
+    final newData = VaultData(
+      version: current.data!.version,
+      updatedAt: now,
+      entries: entries,
+    );
+    final newHeader = await _repo.saveVault(
+      header: current.header!,
+      data: newData,
+      key: current.key!,
+      fileName: current.fileName,
+    );
+    state = VaultState(
+      header: newHeader,
+      data: newData,
+      key: current.key,
+      fileName: current.fileName,
+    );
+  }
+
+  Future<void> clearPasswordHistory(String id) async {
+    final current = state;
+    if (!current.isUnlocked) return;
+
+    final now = DateTime.now().toUtc();
+    var changed = false;
+    final entries = current.data!.entries.map((entry) {
+      if (entry.id != id || entry.passwordHistory.isEmpty) return entry;
+      changed = true;
+      return entry.copyWith(updatedAt: now, passwordHistory: const []);
+    }).toList();
+
+    if (!changed) return;
+
+    final newData = VaultData(
+      version: current.data!.version,
+      updatedAt: now,
+      entries: entries,
+    );
+    final newHeader = await _repo.saveVault(
+      header: current.header!,
+      data: newData,
+      key: current.key!,
+      fileName: current.fileName,
+    );
+    state = VaultState(
+      header: newHeader,
+      data: newData,
+      key: current.key,
+      fileName: current.fileName,
+    );
+  }
+
   Future<void> changeMasterPassword({
     required String currentPassword,
     required String newPassword,
@@ -384,5 +457,8 @@ class VaultNotifier extends StateNotifier<VaultState> {
 }
 
 final vaultProvider = StateNotifierProvider<VaultNotifier, VaultState>((ref) {
-  return VaultNotifier(ref.read(vaultRepositoryProvider));
+  return VaultNotifier(
+    ref.read(vaultRepositoryProvider),
+    ref.read(preferencesServiceProvider),
+  );
 });
