@@ -66,7 +66,7 @@ class _WelcomePageState extends ConsumerState<WelcomePage> {
                 ),
                 const SizedBox(height: 8),
                 const Text(
-                  'Gestor de palavras-passe 100% offline num único cofre cifrado.',
+                  'Gestor de palavras-passe num único cofre criptografado.',
                   textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 32),

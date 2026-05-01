@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../models/vault_entry.dart';
@@ -33,6 +34,7 @@ class _VaultEntryEditPageState extends ConsumerState<VaultEntryEditPage>
   final _titleController = TextEditingController();
   final _userController = TextEditingController();
   final _passController = TextEditingController();
+  final _urlController = TextEditingController();
   final _notesController = TextEditingController();
   final _tagsController = TextEditingController();
   EntryPasswordGeneratorOptions _generatorOptions =
@@ -40,6 +42,7 @@ class _VaultEntryEditPageState extends ConsumerState<VaultEntryEditPage>
   bool _obscure = true;
   bool _saving = false;
   VaultEntry? _existing;
+  VaultEntryCategory _category = VaultEntryCategory.other;
   late final AutoLockController _autoLock;
 
   MasterPasswordPolicyResult get _passwordPolicy =>
@@ -64,7 +67,9 @@ class _VaultEntryEditPageState extends ConsumerState<VaultEntryEditPage>
         _titleController.text = entry.title;
         _userController.text = entry.username;
         _passController.text = entry.password;
+        _urlController.text = entry.url;
         _notesController.text = entry.notes;
+        _category = entry.category;
         _tagsController.text = entry.tags.join(', ');
         break;
       }
@@ -79,6 +84,7 @@ class _VaultEntryEditPageState extends ConsumerState<VaultEntryEditPage>
     _titleController.dispose();
     _userController.dispose();
     _passController.dispose();
+    _urlController.dispose();
     _notesController.dispose();
     _tagsController.dispose();
     super.dispose();
@@ -88,8 +94,15 @@ class _VaultEntryEditPageState extends ConsumerState<VaultEntryEditPage>
     _titleController.clear();
     _userController.clear();
     _passController.clear();
+    _urlController.clear();
     _notesController.clear();
     _tagsController.clear();
+  }
+
+  Future<void> _setSiteUrl(String url) async {
+    await _autoLock.restart();
+    if (!mounted) return;
+    setState(() => _urlController.text = url);
   }
 
   @override
@@ -144,7 +157,9 @@ class _VaultEntryEditPageState extends ConsumerState<VaultEntryEditPage>
           title: _titleController.text,
           username: _userController.text,
           password: _passController.text,
+          url: _urlController.text.trim(),
           notes: _notesController.text,
+          category: _category,
           tags: tags,
         );
       } else {
@@ -154,7 +169,9 @@ class _VaultEntryEditPageState extends ConsumerState<VaultEntryEditPage>
           title: _titleController.text,
           username: _userController.text,
           password: _passController.text,
+          url: _urlController.text.trim(),
           notes: _notesController.text,
+          category: _category,
           tags: tags,
         );
       }
@@ -232,6 +249,17 @@ class _VaultEntryEditPageState extends ConsumerState<VaultEntryEditPage>
                 ),
                 const SizedBox(height: 12),
                 TextFormField(
+                  controller: _urlController,
+                  keyboardType: TextInputType.url,
+                  decoration: const InputDecoration(
+                    labelText: 'URL / Website',
+                    prefixIcon: Icon(Icons.link),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                _PopularSiteButtons(onSelected: _setSiteUrl),
+                const SizedBox(height: 12),
+                TextFormField(
                   controller: _passController,
                   obscureText: _obscure,
                   onChanged: (_) => setState(() {}),
@@ -282,6 +310,24 @@ class _VaultEntryEditPageState extends ConsumerState<VaultEntryEditPage>
                   maxLines: 4,
                 ),
                 const SizedBox(height: 12),
+                DropdownButtonFormField<VaultEntryCategory>(
+                  initialValue: _category,
+                  decoration: const InputDecoration(labelText: 'Categoria'),
+                  items: VaultEntryCategory.values
+                      .map(
+                        (category) => DropdownMenuItem(
+                          value: category,
+                          child: Text(category.label),
+                        ),
+                      )
+                      .toList(),
+                  onChanged: (category) {
+                    _autoLock.restart();
+                    if (category == null) return;
+                    setState(() => _category = category);
+                  },
+                ),
+                const SizedBox(height: 12),
                 TextFormField(
                   controller: _tagsController,
                   decoration: const InputDecoration(
@@ -306,6 +352,62 @@ class _VaultEntryEditPageState extends ConsumerState<VaultEntryEditPage>
       ),
     );
   }
+}
+
+class _PopularSiteButtons extends StatelessWidget {
+  final ValueChanged<String> onSelected;
+
+  const _PopularSiteButtons({required this.onSelected});
+
+  static const _sites = [
+    _PopularSite(
+      label: 'Instagram',
+      url: 'https://www.instagram.com/',
+      icon: FontAwesomeIcons.instagram,
+    ),
+    _PopularSite(
+      label: 'Facebook',
+      url: 'https://www.facebook.com/',
+      icon: FontAwesomeIcons.facebook,
+    ),
+    _PopularSite(
+      label: 'Twitter',
+      url: 'https://twitter.com/',
+      icon: FontAwesomeIcons.twitter,
+    ),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        children: _sites
+            .map(
+              (site) => ActionChip(
+                avatar: FaIcon(site.icon, size: 16),
+                label: Text(site.label),
+                onPressed: () => onSelected(site.url),
+              ),
+            )
+            .toList(),
+      ),
+    );
+  }
+}
+
+class _PopularSite {
+  final String label;
+  final String url;
+  final IconData icon;
+
+  const _PopularSite({
+    required this.label,
+    required this.url,
+    required this.icon,
+  });
 }
 
 class _PasswordGeneratorOptions extends StatelessWidget {

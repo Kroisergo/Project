@@ -53,7 +53,9 @@ class VaultNotifier extends StateNotifier<VaultState> {
     required String title,
     required String username,
     required String password,
+    String url = '',
     required String notes,
+    VaultEntryCategory category = VaultEntryCategory.other,
     List<String> tags = const [],
   }) async {
     final current = state;
@@ -65,7 +67,9 @@ class VaultNotifier extends StateNotifier<VaultState> {
       title: title,
       username: username,
       password: password,
+      url: url,
       notes: notes,
+      category: category,
       tags: tags,
       createdAt: now,
       updatedAt: now,
@@ -99,7 +103,9 @@ class VaultNotifier extends StateNotifier<VaultState> {
     required String title,
     required String username,
     required String password,
+    String? url,
     required String notes,
+    VaultEntryCategory? category,
     List<String> tags = const [],
   }) async {
     final current = state;
@@ -120,7 +126,9 @@ class VaultNotifier extends StateNotifier<VaultState> {
         title: title,
         username: username,
         password: password,
+        url: url ?? e.url,
         notes: notes,
+        category: category ?? e.category,
         tags: tags,
         updatedAt: now,
         passwordUpdatedAt: passwordChanged ? now : e.passwordUpdatedAt,
@@ -134,6 +142,39 @@ class VaultNotifier extends StateNotifier<VaultState> {
       entries: entries,
     );
 
+    final newHeader = await _repo.saveVault(
+      header: current.header!,
+      data: newData,
+      key: current.key!,
+      fileName: current.fileName,
+    );
+    state = VaultState(
+      header: newHeader,
+      data: newData,
+      key: current.key,
+      fileName: current.fileName,
+    );
+  }
+
+  Future<void> setEntryFavorite(String id, bool isFavorite) async {
+    final current = state;
+    if (!current.isUnlocked) return;
+
+    final now = DateTime.now().toUtc();
+    var changed = false;
+    final entries = current.data!.entries.map((entry) {
+      if (entry.id != id || entry.isFavorite == isFavorite) return entry;
+      changed = true;
+      return entry.copyWith(isFavorite: isFavorite, updatedAt: now);
+    }).toList();
+
+    if (!changed) return;
+
+    final newData = VaultData(
+      version: current.data!.version,
+      updatedAt: now,
+      entries: entries,
+    );
     final newHeader = await _repo.saveVault(
       header: current.header!,
       data: newData,

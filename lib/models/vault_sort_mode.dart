@@ -7,6 +7,7 @@ enum VaultSortMode {
   recentlyOpened,
   mostUsed,
   leastUsed,
+  category,
 }
 
 extension VaultSortModePreference on VaultSortMode {
@@ -28,6 +29,8 @@ extension VaultSortModePreference on VaultSortMode {
         return 'mostUsed';
       case VaultSortMode.leastUsed:
         return 'leastUsed';
+      case VaultSortMode.category:
+        return 'category';
     }
   }
 
@@ -49,6 +52,8 @@ extension VaultSortModePreference on VaultSortMode {
         return 'Mais utilizado';
       case VaultSortMode.leastUsed:
         return 'Menos utilizado';
+      case VaultSortMode.category:
+        return 'Categoria';
     }
   }
 }
@@ -69,6 +74,8 @@ VaultSortMode vaultSortModeFromPreference(String? value) {
       return VaultSortMode.mostUsed;
     case 'leastUsed':
       return VaultSortMode.leastUsed;
+    case 'category':
+      return VaultSortMode.category;
     case 'az':
     default:
       return VaultSortMode.az;

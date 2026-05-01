@@ -16,8 +16,7 @@ class AppSecurityEffects extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final controller = ref.read(screenProtectionControllerProvider);
-    final current = ref.read(vaultProvider);
-    unawaited(controller.syncForVaultState(current.isUnlocked));
+    unawaited(controller.ensureEnabledByDefault());
 
     ref.listen<VaultState>(vaultProvider, (_, next) {
       unawaited(controller.syncForVaultState(next.isUnlocked));

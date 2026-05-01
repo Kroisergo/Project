@@ -640,6 +640,42 @@ void main() {
       expect(invalid.isValid, isFalse);
     },
   );
+
+  test('Automatic local backups are created and pruned on overwrite', () async {
+    final tempDir = await Directory.systemTemp.createTemp(
+      'vault_auto_backup_test',
+    );
+    final fileService = VaultFileService(baseDir: tempDir);
+    final target = await fileService.defaultVaultFile();
+
+    await fileService.writeVault(
+      target: target,
+      headerBytes: Uint8List.fromList([1]),
+      cipherBytes: Uint8List.fromList([2]),
+    );
+    final firstBytes = await target.readAsBytes();
+
+    await fileService.writeVault(
+      target: target,
+      headerBytes: Uint8List.fromList([3]),
+      cipherBytes: Uint8List.fromList([4]),
+    );
+
+    var backups = await _automaticBackups(fileService);
+    expect(backups, hasLength(1));
+    expect(await backups.single.readAsBytes(), firstBytes);
+
+    for (var i = 0; i < 6; i += 1) {
+      await fileService.writeVault(
+        target: target,
+        headerBytes: Uint8List.fromList([10 + i]),
+        cipherBytes: Uint8List.fromList([20 + i]),
+      );
+    }
+
+    backups = await _automaticBackups(fileService);
+    expect(backups, hasLength(VaultFileService.automaticBackupRetention));
+  });
 }
 
 class _FailingVaultFileService extends VaultFileService {
@@ -663,4 +699,15 @@ class _FailingVaultFileService extends VaultFileService {
       cipherBytes: cipherBytes,
     );
   }
+}
+
+Future<List<File>> _automaticBackups(VaultFileService fileService) async {
+  final dir = await fileService.automaticBackupDirectory();
+  if (!await dir.exists()) return [];
+  final backups = <File>[];
+  await for (final entity in dir.list()) {
+    if (entity is File) backups.add(entity);
+  }
+  backups.sort((a, b) => a.path.compareTo(b.path));
+  return backups;
 }

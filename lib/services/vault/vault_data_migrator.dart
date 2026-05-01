@@ -1,3 +1,4 @@
+import '../../models/vault_entry.dart';
 import '../../utils/constants.dart';
 
 class VaultDataMigrator {
@@ -53,7 +54,10 @@ class VaultDataMigrator {
     entry['title'] = entry['title'] as String? ?? '';
     entry['username'] = entry['username'] as String? ?? '';
     entry['password'] = password;
+    entry['url'] = entry['url'] as String? ?? '';
     entry['notes'] = entry['notes'] as String? ?? '';
+    entry['category'] = VaultEntryCategory.fromValue(entry['category']).value;
+    entry['isFavorite'] = entry['isFavorite'] == true;
     final tags = entry['tags'];
     entry['tags'] = tags is List
         ? tags.whereType<String>().toList()

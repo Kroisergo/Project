@@ -10,6 +10,8 @@ import '../../utils/constants.dart';
 class VaultFileService {
   VaultFileService({Directory? baseDir}) : _baseDir = baseDir;
 
+  static const int automaticBackupRetention = 5;
+
   final Directory? _baseDir;
 
   Future<Directory> _vaultDirectory() async {
@@ -28,6 +30,11 @@ class VaultFileService {
     final dir = await _vaultDirectory();
     final fileName = normalizeVaultName(name);
     return File(p.join(dir.path, fileName));
+  }
+
+  Future<Directory> automaticBackupDirectory() async {
+    final dir = await _vaultDirectory();
+    return Directory(p.join(dir.path, 'backups'));
   }
 
   Future<bool> hasExistingVault({String? preferredName}) async {
@@ -61,6 +68,7 @@ class VaultFileService {
     File? backup;
     try {
       if (await target.exists()) {
+        await _tryCreateAutomaticBackup(target);
         backup = File('${target.path}.bak');
         if (await backup.exists()) {
           await backup.delete();
@@ -107,7 +115,48 @@ class VaultFileService {
       throw Exception(validation.message);
     }
     final target = await vaultFileForName(targetFileName);
+    await _tryCreateAutomaticBackup(target);
     await target.writeAsBytes(await source.readAsBytes(), flush: true);
+  }
+
+  Future<void> _tryCreateAutomaticBackup(File target) async {
+    try {
+      if (!await target.exists()) return;
+      final dir = await automaticBackupDirectory();
+      await dir.create(recursive: true);
+      final baseName = p.basenameWithoutExtension(target.path);
+      final timestamp = DateTime.now().toUtc().microsecondsSinceEpoch;
+      final backup = File(
+        p.join(
+          dir.path,
+          '${baseName}_$timestamp${VaultConstants.vaultExtension}',
+        ),
+      );
+      await backup.writeAsBytes(await target.readAsBytes(), flush: true);
+      await _pruneAutomaticBackups(dir, baseName);
+    } catch (_) {
+      // Backups are best-effort and must not block saving the encrypted vault.
+    }
+  }
+
+  Future<void> _pruneAutomaticBackups(Directory dir, String baseName) async {
+    if (!await dir.exists()) return;
+    final backups = <File>[];
+    await for (final entity in dir.list()) {
+      if (entity is! File) continue;
+      final fileName = p.basename(entity.path);
+      if (fileName.startsWith('${baseName}_') &&
+          p.extension(fileName).toLowerCase() ==
+              VaultConstants.vaultExtension) {
+        backups.add(entity);
+      }
+    }
+    backups.sort((a, b) => p.basename(b.path).compareTo(p.basename(a.path)));
+    for (final stale in backups.skip(automaticBackupRetention)) {
+      if (await stale.exists()) {
+        await stale.delete();
+      }
+    }
   }
 
   Future<VaultBackupValidationResult> validateVaultFileStructure(

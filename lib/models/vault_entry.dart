@@ -1,3 +1,30 @@
+enum VaultEntryCategory {
+  social('social', 'Social', 0),
+  email('email', 'Email', 1),
+  bank('bank', 'Banco', 2),
+  games('games', 'Jogos', 3),
+  work('work', 'Trabalho', 4),
+  other('other', 'Outros', 5);
+
+  const VaultEntryCategory(this.value, this.label, this.sortOrder);
+
+  final String value;
+  final String label;
+  final int sortOrder;
+
+  static VaultEntryCategory fromValue(Object? raw) {
+    if (raw is! String) return VaultEntryCategory.other;
+    final normalized = raw.trim().toLowerCase();
+    for (final category in VaultEntryCategory.values) {
+      if (category.value == normalized ||
+          category.label.toLowerCase() == normalized) {
+        return category;
+      }
+    }
+    return VaultEntryCategory.other;
+  }
+}
+
 class VaultPasswordHistoryItem {
   final String password;
   final DateTime changedAt;
@@ -28,7 +55,10 @@ class VaultEntry {
   final String title;
   final String username;
   final String password;
+  final String url;
   final String notes;
+  final VaultEntryCategory category;
+  final bool isFavorite;
   final List<String> tags;
   final DateTime createdAt;
   final DateTime updatedAt;
@@ -43,7 +73,10 @@ class VaultEntry {
     required this.title,
     required this.username,
     required this.password,
+    this.url = '',
     required this.notes,
+    this.category = VaultEntryCategory.other,
+    this.isFavorite = false,
     required this.tags,
     required this.createdAt,
     required this.updatedAt,
@@ -60,7 +93,10 @@ class VaultEntry {
     String? title,
     String? username,
     String? password,
+    String? url,
     String? notes,
+    VaultEntryCategory? category,
+    bool? isFavorite,
     List<String>? tags,
     DateTime? updatedAt,
     DateTime? passwordUpdatedAt,
@@ -75,7 +111,10 @@ class VaultEntry {
       title: title ?? this.title,
       username: username ?? this.username,
       password: password ?? this.password,
+      url: url ?? this.url,
       notes: notes ?? this.notes,
+      category: category ?? this.category,
+      isFavorite: isFavorite ?? this.isFavorite,
       tags: tags ?? this.tags,
       createdAt: createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
@@ -93,7 +132,10 @@ class VaultEntry {
       'title': title,
       'username': username,
       'password': password,
+      'url': url,
       'notes': notes,
+      'category': category.value,
+      'isFavorite': isFavorite,
       'tags': tags,
       'createdAt': createdAt.toIso8601String(),
       'updatedAt': updatedAt.toIso8601String(),
@@ -136,7 +178,10 @@ class VaultEntry {
       title: json['title'] as String,
       username: json['username'] as String? ?? '',
       password: password,
+      url: json['url'] as String? ?? '',
       notes: json['notes'] as String? ?? '',
+      category: VaultEntryCategory.fromValue(json['category']),
+      isFavorite: json['isFavorite'] == true,
       tags: (json['tags'] as List<dynamic>? ?? []).cast<String>(),
       createdAt: createdAt,
       updatedAt: updatedAt,

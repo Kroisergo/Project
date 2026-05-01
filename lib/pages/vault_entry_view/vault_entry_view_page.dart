@@ -188,6 +188,14 @@ class _VaultEntryViewPageState extends ConsumerState<VaultEntryViewPage>
     }
   }
 
+  Future<void> _toggleFavorite(VaultEntry entry) async {
+    await _autoLock.restart();
+    if (!mounted) return;
+    await ref
+        .read(vaultProvider.notifier)
+        .setEntryFavorite(entry.id, !entry.isFavorite);
+  }
+
   void _onLocked() {
     if (!mounted) return;
     ScaffoldMessenger.of(
@@ -258,6 +266,16 @@ class _VaultEntryViewPageState extends ConsumerState<VaultEntryViewPage>
         ? <Widget>[]
         : [
             IconButton(
+              tooltip: entry.isFavorite
+                  ? 'Remover dos favoritos'
+                  : 'Adicionar aos favoritos',
+              icon: Icon(
+                entry.isFavorite ? Icons.star : Icons.star_border,
+                color: entry.isFavorite ? Colors.amber : null,
+              ),
+              onPressed: () => _toggleFavorite(entry),
+            ),
+            IconButton(
               icon: const Icon(Icons.edit_outlined),
               onPressed: () {
                 _autoLock.restart();
@@ -309,11 +327,32 @@ class _VaultEntryViewPageState extends ConsumerState<VaultEntryViewPage>
                       ],
                     ),
                     const SizedBox(height: 16),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        Chip(label: Text(entry.category.label)),
+                        if (entry.isFavorite)
+                          const Chip(
+                            avatar: Icon(Icons.star, size: 18),
+                            label: Text('Favorito'),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
                     _fieldRow(
                       'Utilizador',
                       entry.username,
                       onCopy: () => _copy('Utilizador', entry.username),
                     ),
+                    if (entry.url.trim().isNotEmpty) ...[
+                      const SizedBox(height: 12),
+                      _fieldRow(
+                        'URL / Website',
+                        entry.url,
+                        onCopy: () => _copy('URL', entry.url),
+                      ),
+                    ],
                     const SizedBox(height: 12),
                     _fieldRow(
                       'Palavra-passe',
@@ -483,6 +522,12 @@ class _EntryDetailsSheet extends StatelessWidget {
                 context,
                 'Palavra-passe alterada',
                 formatRelativePast(entry.passwordUpdatedAt),
+              ),
+              _detailLine(context, 'Categoria', entry.category.label),
+              _detailLine(
+                context,
+                'Favorito',
+                entry.isFavorite ? 'Sim' : 'Não',
               ),
               if (recommendation != null) ...[
                 _detailLine(

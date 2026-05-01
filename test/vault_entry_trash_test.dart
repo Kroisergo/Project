@@ -9,6 +9,8 @@ import 'package:encryvault/services/security/master_password_policy.dart';
 import 'package:encryvault/services/security/password_feedback_service.dart';
 import 'package:encryvault/services/security/password_entry_recommendation.dart';
 import 'package:encryvault/services/security/password_health_service.dart';
+import 'package:encryvault/services/security/screen_protection_controller.dart';
+import 'package:encryvault/services/security/screen_protection_service.dart';
 import 'package:encryvault/services/vault/trash_retention_policy.dart';
 import 'package:encryvault/services/vault/vault_data_migrator.dart';
 import 'package:encryvault/services/vault/vault_sort_controller.dart';
@@ -34,7 +36,36 @@ void main() {
       expect(entry.lastOpenedAt, DateTime.utc(2026, 1, 2));
       expect(entry.openCount, 0);
       expect(entry.passwordHistory, isEmpty);
+      expect(entry.url, '');
+      expect(entry.category, VaultEntryCategory.other);
+      expect(entry.isFavorite, isFalse);
       expect(entry.toJson().containsKey('deletedAt'), isFalse);
+    });
+
+    test('serializes optional URL, category and favorite metadata', () {
+      final now = DateTime.utc(2026, 1, 1);
+      final entry = VaultEntry(
+        id: '1',
+        title: 'Instagram',
+        username: 'user',
+        password: 'secret',
+        url: 'https://www.instagram.com/',
+        notes: '',
+        category: VaultEntryCategory.social,
+        isFavorite: true,
+        tags: const ['social'],
+        createdAt: now,
+        updatedAt: now,
+        passwordUpdatedAt: now,
+        lastOpenedAt: now,
+        passwordHistory: const [],
+      );
+
+      final decoded = VaultEntry.fromJson(entry.toJson());
+
+      expect(decoded.url, 'https://www.instagram.com/');
+      expect(decoded.category, VaultEntryCategory.social);
+      expect(decoded.isFavorite, isTrue);
     });
 
     test('separates active and deleted entries', () {
@@ -91,6 +122,9 @@ void main() {
       expect(data.entries.single.tags, isEmpty);
       expect(data.entries.single.openCount, 0);
       expect(data.entries.single.passwordHistory, isEmpty);
+      expect(data.entries.single.url, '');
+      expect(data.entries.single.category, VaultEntryCategory.other);
+      expect(data.entries.single.isFavorite, isFalse);
     });
 
     test(
@@ -403,6 +437,73 @@ void main() {
         ['low', 'high'],
       );
     });
+
+    test('filters by category and favorites with favorites first', () {
+      final now = DateTime.utc(2026, 1, 10);
+      final bank = _entry(
+        id: 'bank',
+        password: 'a',
+        updatedAt: now,
+        category: VaultEntryCategory.bank,
+      );
+      final social = _entry(
+        id: 'social',
+        password: 'b',
+        updatedAt: now,
+        category: VaultEntryCategory.social,
+      );
+      final favorite = _entry(
+        id: 'favorite',
+        password: 'c',
+        updatedAt: now,
+        category: VaultEntryCategory.other,
+        isFavorite: true,
+      );
+
+      expect(
+        filterAndSortEntries(
+          entries: [bank, social, favorite],
+          query: '',
+          selectedTags: const {},
+          sortMode: VaultSortMode.category,
+        ).map((entry) => entry.id),
+        ['favorite', 'social', 'bank'],
+      );
+      expect(
+        filterAndSortEntries(
+          entries: [bank, social, favorite],
+          query: '',
+          selectedTags: const {},
+          sortMode: VaultSortMode.az,
+          selectedCategory: VaultEntryCategory.social,
+        ).map((entry) => entry.id),
+        ['social'],
+      );
+      expect(
+        filterAndSortEntries(
+          entries: [bank, social, favorite],
+          query: '',
+          selectedTags: const {},
+          sortMode: VaultSortMode.az,
+          favoritesOnly: true,
+        ).map((entry) => entry.id),
+        ['favorite'],
+      );
+    });
+  });
+
+  group('Screen protection', () {
+    test('is enabled by default only once', () async {
+      final service = _FakeScreenProtectionService();
+      final controller = ScreenProtectionController(service: service);
+
+      await controller.ensureEnabledByDefault();
+      await controller.syncForVaultState(false);
+      await controller.syncForVaultState(true);
+
+      expect(service.enableCalls, 1);
+      expect(service.enabled, isTrue);
+    });
   });
 }
 
@@ -410,6 +511,8 @@ VaultEntry _entry({
   required String id,
   required String password,
   required DateTime updatedAt,
+  VaultEntryCategory category = VaultEntryCategory.other,
+  bool isFavorite = false,
   DateTime? lastOpenedAt,
   int openCount = 0,
   DateTime? deletedAt,
@@ -428,6 +531,8 @@ VaultEntry _entry({
     username: '',
     password: password,
     notes: '',
+    category: category,
+    isFavorite: isFavorite,
     tags: const [],
     createdAt: updatedAt,
     updatedAt: updatedAt,
@@ -437,4 +542,15 @@ VaultEntry _entry({
     passwordHistory: history,
     deletedAt: deletedAt,
   );
+}
+
+class _FakeScreenProtectionService extends ScreenProtectionService {
+  bool enabled = false;
+  int enableCalls = 0;
+
+  @override
+  Future<void> enable() async {
+    enableCalls += 1;
+    enabled = true;
+  }
 }
