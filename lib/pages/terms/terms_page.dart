@@ -30,7 +30,7 @@ class _TermsPageState extends ConsumerState<TermsPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Termos de Utilização')),
+      appBar: AppBar(title: const Text('Termos de utilização')),
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
@@ -47,7 +47,7 @@ class _TermsPageState extends ConsumerState<TermsPage> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'EncryVault é uma aplicação offline para gestão local de dados sensíveis. Antes de continuares, deves ler e aceitar estes Termos de Utilização. Ao usares a aplicação, reconheces que a segurança prática do teu cofre depende também da forma como escolhes, guardas e proteges as tuas credenciais, exportações, backups e dispositivo.',
+                          'EncryVault é uma aplicação sem ligação à internet para gestão local de dados sensíveis. Antes de continuares, deves ler e aceitar estes Termos de utilização. Ao usares a aplicação, reconheces que a segurança prática do teu cofre depende também da forma como escolhes, guardas e proteges as tuas credenciais, exportações, cópias de segurança e dispositivo.',
                           style: Theme.of(context).textTheme.bodyLarge,
                         ),
                         const SizedBox(height: 16),
@@ -69,7 +69,7 @@ class _TermsPageState extends ConsumerState<TermsPage> {
                 onChanged: saving
                     ? null
                     : (value) => setState(() => accepted = value ?? false),
-                title: const Text('Li e aceito os Termos de Utilização'),
+                title: const Text('Li e aceito os Termos de utilização'),
                 controlAffinity: ListTileControlAffinity.leading,
               ),
               const SizedBox(height: 8),
@@ -93,17 +93,17 @@ class _TermsPageState extends ConsumerState<TermsPage> {
 
 const _termsText =
     '1. Natureza da aplicação\n'
-    'EncryVault foi concebida para funcionar maioritariamente de forma offline, com controlo local dos dados por parte do utilizador. A aplicação não depende de sincronização remota para o funcionamento base do cofre e os dados são geridos no dispositivo e nos ficheiros locais escolhidos pelo utilizador.\n\n'
+    'EncryVault foi concebida para funcionar maioritariamente sem ligação à internet, com controlo local dos dados por parte do utilizador. A aplicação não depende de sincronização remota para o funcionamento base do cofre e os dados são geridos no dispositivo e nos ficheiros locais escolhidos pelo utilizador.\n\n'
     '2. Palavra-passe mestra e acesso ao cofre\n'
     'A palavra-passe mestra é essencial para abrir o cofre. És o único responsável por criar uma palavra-passe mestra forte, memorizá-la ou guardá-la de forma segura e impedir o acesso de terceiros. Se a palavra-passe mestra for esquecida, perdida, introduzida incorretamente repetidamente ou comprometida, o acesso ao cofre pode tornar-se impossível ou inseguro. A aplicação não garante recuperação de acesso em caso de perda das credenciais.\n\n'
     '3. Perda de acesso e perda de dados\n'
     'Ao utilizar a aplicação, aceitas que pode existir perda definitiva de acesso ao cofre se esqueceres a palavra-passe mestra, se perderes os ficheiros exportados, se o dispositivo falhar, se o ficheiro do cofre for eliminado, sobrescrito, corrompido ou alterado indevidamente. O utilizador assume integralmente esse risco.\n\n'
-    '4. Exportações, backups e cópias\n'
-    'Sempre que exportares o cofre ou criares cópias de segurança, és responsável por proteger esses ficheiros. Qualquer exportação ou backup deve ser guardado em local seguro, com controlo de acesso adequado. A existência de backups inseguros, desprotegidos ou mal geridos pode expor os teus dados e essa responsabilidade pertence ao utilizador.\n\n'
+    '4. Exportações e cópias de segurança\n'
+    'Sempre que exportares o cofre ou criares cópias de segurança, és responsável por proteger esses ficheiros. Qualquer exportação ou cópia de segurança deve ser guardada em local seguro, com controlo de acesso adequado. A existência de cópias de segurança inseguras, desprotegidas ou mal geridas pode expor os teus dados e essa responsabilidade pertence ao utilizador.\n\n'
     '5. Utilização adequada\n'
     'Compete-te utilizar a aplicação de forma responsável e lícita. Não deves usar EncryVault para fins ilegais, abusivos ou contrários à proteção dos teus próprios dados. Também és responsável pela exatidão dos dados que inseres e pela forma como escolhes organizar, categorizar e manter o conteúdo do teu cofre.\n\n'
     '6. Limitações técnicas e de segurança\n'
-    'Embora a aplicação adote mecanismos de proteção adequados ao seu objetivo, não existe garantia absoluta contra todos os riscos, incluindo falhas de hardware, malware, acesso indevido ao dispositivo, capturas de ecrã, cópias locais inseguras, corrupção de ficheiros, erros humanos, configurações incorretas ou outros incidentes fora do controlo direto da aplicação. A segurança final depende também do contexto em que a app é usada.\n\n'
+    'Embora a aplicação adote mecanismos de proteção adequados ao seu objetivo, não existe garantia absoluta contra todos os riscos, incluindo falhas de hardware, malware, acesso indevido ao dispositivo, capturas de ecrã, cópias locais inseguras, corrupção de ficheiros, erros humanos, configurações incorretas ou outros incidentes fora do controlo direto da aplicação. A segurança final depende também do contexto em que a aplicação é usada.\n\n'
     '7. Integridade e disponibilidade\n'
     'A aplicação pode recusar a abertura de um cofre quando deteta palavra-passe incorreta, corrupção, alteração indevida ou inconsistências no ficheiro. Aceitas que a proteção da integridade pode implicar a impossibilidade de abrir parcialmente ou recuperar automaticamente conteúdos em determinadas situações.\n\n'
     '8. Ausência de garantias absolutas\n'
@@ -111,18 +111,18 @@ const _termsText =
     '9. Alterações futuras\n'
     'Funcionalidades, fluxos, opções visíveis, mecanismos auxiliares de segurança e comportamento geral da aplicação podem ser alterados em versões futuras. Essas alterações podem incluir melhorias, limitações, reformulações de interface ou ajustamentos técnicos necessários ao funcionamento da aplicação.\n\n'
     '10. Aceitação dos Termos\n'
-    'Ao assinalares a aceitação e continuares para a utilização da aplicação, confirmas que compreendes estes Termos de Utilização, aceitas a responsabilidade pela proteção das tuas credenciais e dados exportados, e reconheces as limitações e riscos inerentes ao uso local e offline do cofre.\n';
+    'Ao assinalares a aceitação e continuares para a utilização da aplicação, confirmas que compreendes estes Termos de utilização, aceitas a responsabilidade pela proteção das tuas credenciais e dados exportados, e reconheces as limitações e riscos inerentes ao uso local sem ligação à internet do cofre.\n';
 
 class _RiskWarningsPanel extends StatelessWidget {
   const _RiskWarningsPanel();
 
   static const _warnings = [
-    'Se esqueceres a palavra-passe mestra, o cofre não pode ser recuperado pela app.',
-    'Se apagares o ficheiro do cofre, podes perder o acesso aos dados.',
+    'Se esqueceres a palavra-passe mestra, o cofre não pode ser recuperado pela aplicação.',
+    'Se eliminares o ficheiro do cofre, podes perder o acesso aos dados.',
     'Importar por cima substitui o cofre atual pelo ficheiro escolhido.',
-    'Se perderes backups ou exportações, podes ficar sem forma de restaurar o cofre.',
+    'Se perderes cópias de segurança ou exportações, podes ficar sem forma de restaurar o cofre.',
     'Se esqueceres um PIN de proteção, algumas ações protegidas podem ficar inacessíveis.',
-    'O Lixo não é um backup permanente e exportações devem ser guardadas em local seguro.',
+    'O Lixo não é uma cópia de segurança permanente e exportações devem ser guardadas em local seguro.',
   ];
 
   @override

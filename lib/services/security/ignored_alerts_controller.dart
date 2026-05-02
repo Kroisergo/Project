@@ -82,6 +82,14 @@ class IgnoredEntryAlertsController
     await _preferences.setIgnoredEntryAlertExpiries(updated);
     state = AsyncValue.data(updated);
   }
+
+  Future<void> remove(String key, {DateTime? now}) async {
+    final current = state.valueOrNull ?? {};
+    final cleaned = IgnoredAlertExpiries.removeExpired(current, now: now)
+      ..remove(key);
+    await _preferences.setIgnoredEntryAlertExpiries(cleaned);
+    state = AsyncValue.data(cleaned);
+  }
 }
 
 final ignoredEntryAlertsProvider =

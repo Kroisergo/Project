@@ -143,11 +143,11 @@ class _CreateMasterPageState extends ConsumerState<CreateMasterPage> {
                 ),
                 validator: (v) {
                   final value = v ?? '';
-                  if (value.isEmpty) return 'Obrigatorio';
+                  if (value.isEmpty) return 'Obrigatório';
                   final result = MasterPasswordPolicy.evaluate(value);
                   if (!result.isValid) {
                     return result.firstMissingRequirement ??
-                        'A palavra-passe mestra nao cumpre os requisitos.';
+                        'A palavra-passe mestra não cumpre os requisitos.';
                   }
                   return null;
                 },
@@ -173,7 +173,7 @@ class _CreateMasterPageState extends ConsumerState<CreateMasterPage> {
                 ),
                 validator: (v) {
                   if (v != _masterController.text) {
-                    return 'As palavras-passe nao coincidem';
+                    return 'As palavras-passe não coincidem.';
                   }
                   return null;
                 },
@@ -187,7 +187,7 @@ class _CreateMasterPageState extends ConsumerState<CreateMasterPage> {
                         width: 20,
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
-                    : const Text('Criar Cofre'),
+                    : const Text('Criar cofre'),
               ),
             ],
           ),

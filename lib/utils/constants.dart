@@ -24,4 +24,6 @@ class PrefsKeys {
   static const visualProtection = 'visualProtection';
   static const protectScreenRecording = 'protectScreenRecording';
   static const ignoredEntryAlertExpiries = 'ignoredEntryAlertExpiries';
+  static const tagDisplayMode = 'tagDisplayMode';
+  static const exposedHomeTagKeys = 'exposedHomeTagKeys';
 }

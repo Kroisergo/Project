@@ -55,7 +55,9 @@ class _ImportVaultPageState extends ConsumerState<ImportVaultPage> {
     setState(() => _busy = true);
     try {
       _path = _pathController.text.trim();
-      if (_path.isEmpty) throw Exception('Indica caminho do ficheiro .vltx');
+      if (_path.isEmpty) {
+        throw Exception('Indica o caminho do ficheiro .vltx.');
+      }
       final currentName = await _prefs.getVaultFileName();
       final targetName = _vaultFileService.normalizeVaultName(
         currentName ?? p.basename(_path),
@@ -67,9 +69,9 @@ class _ImportVaultPageState extends ConsumerState<ImportVaultPage> {
       await _prefs.setVaultFileName(targetName);
       ref.read(vaultProvider.notifier).clear();
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Cofre importado de: $_path')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Cofre importado a partir de: $_path')),
+      );
       context.go(UnlockPage.routePath);
     } catch (e) {
       if (!mounted) return;
@@ -149,7 +151,9 @@ class _ImportVaultPageState extends ConsumerState<ImportVaultPage> {
               child: ListTile(
                 leading: const Icon(Icons.palette_outlined),
                 title: const Text('Tema'),
-                subtitle: const Text('Modo claro, escuro ou sistema'),
+                subtitle: const Text(
+                  'Modo claro, escuro ou definido pelo sistema',
+                ),
                 trailing: DropdownButton<ThemeMode>(
                   value: _themeMode,
                   items: const [

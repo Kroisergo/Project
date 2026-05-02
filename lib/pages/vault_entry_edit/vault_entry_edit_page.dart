@@ -192,7 +192,7 @@ class _VaultEntryEditPageState extends ConsumerState<VaultEntryEditPage>
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Sessão bloqueada. Reentra para gravar.'),
+            content: Text('Sessão bloqueada. Volta a entrar para gravar.'),
           ),
         );
         context.go(UnlockPage.routePath);
@@ -245,7 +245,7 @@ class _VaultEntryEditPageState extends ConsumerState<VaultEntryEditPage>
                 TextFormField(
                   controller: _userController,
                   decoration: const InputDecoration(
-                    labelText: 'Utilizador/Email',
+                    labelText: 'Utilizador/correio eletrónico',
                   ),
                 ),
                 const SizedBox(height: 12),
@@ -253,7 +253,7 @@ class _VaultEntryEditPageState extends ConsumerState<VaultEntryEditPage>
                   controller: _urlController,
                   keyboardType: TextInputType.url,
                   decoration: const InputDecoration(
-                    labelText: 'URL / Website',
+                    labelText: 'URL / site',
                     prefixIcon: Icon(Icons.link),
                   ),
                 ),
@@ -332,7 +332,7 @@ class _VaultEntryEditPageState extends ConsumerState<VaultEntryEditPage>
                 TextFormField(
                   controller: _tagsController,
                   decoration: const InputDecoration(
-                    labelText: 'Tags (separadas por vírgula)',
+                    labelText: 'Etiquetas (separadas por vírgula)',
                   ),
                 ),
                 const SizedBox(height: 20),

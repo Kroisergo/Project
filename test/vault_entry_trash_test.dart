@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:password_strength_checker/password_strength_checker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:encryvault/models/tag_display_mode.dart';
 import 'package:encryvault/models/vault_data.dart';
 import 'package:encryvault/models/vault_entry.dart';
 import 'package:encryvault/models/vault_sort_mode.dart';
@@ -338,8 +339,8 @@ void main() {
         isReused: true,
       );
 
-      expect(messages, contains('Sem letras maiusculas.'));
-      expect(messages, contains('Sem simbolos.'));
+      expect(messages, contains('Sem letras maiúsculas.'));
+      expect(messages, contains('Sem símbolos.'));
       expect(messages, contains('Parece reutilizada noutra entrada.'));
     });
 
@@ -428,6 +429,50 @@ void main() {
       expect(cleaned, containsPair(active, cleaned[active]));
       expect(cleaned.containsKey(expired), isFalse);
     });
+
+    test('ignored alert controller can remove saved expiry', () async {
+      SharedPreferences.setMockInitialValues({});
+      final preferences = PreferencesService();
+      final controller = IgnoredEntryAlertsController(preferences);
+      final now = DateTime.utc(2026, 1, 1, 12);
+      const key = 'entry-a:weak';
+
+      await controller.load(now: now);
+      await controller.ignore(
+        key,
+        IgnoredAlertDurationOption.values.first,
+        now: now,
+      );
+      expect(
+        await preferences.getIgnoredEntryAlertExpiries(),
+        containsPair(key, isA<int>()),
+      );
+
+      await controller.remove(key, now: now);
+      final saved = await preferences.getIgnoredEntryAlertExpiries();
+      expect(saved.containsKey(key), isFalse);
+    });
+
+    test(
+      'tag display preferences persist mode and non-plaintext tag keys',
+      () async {
+        SharedPreferences.setMockInitialValues({});
+        final preferences = PreferencesService();
+        final key = tagDisplayPreferenceKey('Banco pessoal');
+
+        expect(await preferences.getTagDisplayMode(), TagDisplayMode.all);
+        await preferences.setTagDisplayMode(TagDisplayMode.custom);
+        await preferences.setExposedHomeTagKeys([key]);
+
+        final sharedPreferences = await SharedPreferences.getInstance();
+        expect(await preferences.getTagDisplayMode(), TagDisplayMode.custom);
+        expect(await preferences.getExposedHomeTagKeys(), [key]);
+        expect(
+          sharedPreferences.getStringList(PrefsKeys.exposedHomeTagKeys),
+          isNot(contains('Banco pessoal')),
+        );
+      },
+    );
   });
 
   group('Trash retention policy', () {

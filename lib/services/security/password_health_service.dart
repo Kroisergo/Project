@@ -62,12 +62,18 @@ class PasswordHealthReport {
     if (total == 0) return 'Ainda não existem entradas ativas.';
     if (!hasImportantAlerts) return 'O cofre não tem alertas relevantes.';
     final parts = <String>[];
-    if (weak > 0) parts.add('$weak fraca(s)');
-    if (reused > 0) parts.add('$reused reutilizada(s)');
+    if (weak > 0) parts.add(_countLabel(weak, 'fraca', 'fracas'));
+    if (reused > 0) {
+      parts.add(_countLabel(reused, 'reutilizada', 'reutilizadas'));
+    }
     if (old > 0) parts.add('$old a mudar');
     if (empty > 0) parts.add('$empty sem palavra-passe');
     if (oldTrash > 0) parts.add('$oldTrash no Lixo há muito tempo');
     return 'Alertas: ${parts.join(', ')}.';
+  }
+
+  static String _countLabel(int count, String singular, String plural) {
+    return '$count ${count == 1 ? singular : plural}';
   }
 }
 
@@ -273,11 +279,11 @@ class PasswordHealthService {
       PasswordHealthIssue.empty =>
         'Esta entrada não tem palavra-passe guardada.',
       PasswordHealthIssue.uncategorized =>
-        'Esta entrada não tem categoria/tag.',
+        'Esta entrada não tem categoria/etiqueta.',
       PasswordHealthIssue.neverOpened => 'Esta entrada nunca foi aberta.',
       PasswordHealthIssue.rarelyUsed => 'Esta entrada é pouco usada.',
       PasswordHealthIssue.largeHistory =>
-        'Esta entrada tem histórico de palavra-passes grande.',
+        'Esta entrada tem um histórico de palavras-passe grande.',
       PasswordHealthIssue.oldTrash =>
         'Esta entrada está no Lixo há muito tempo.',
     };
@@ -384,7 +390,7 @@ class PasswordHealthService {
       alerts.add(
         PasswordHealthEntryAlert(
           issue: PasswordHealthIssue.old,
-          message: 'Esta palavra-passe devia ser mudada.',
+          message: 'Esta palavra-passe deve ser alterada.',
           ignoreKey: alertIgnoreKey(
             entryId: entry.id,
             issue: PasswordHealthIssue.old,
@@ -446,7 +452,7 @@ class PasswordHealthService {
     );
     final referenceNow = (now ?? DateTime.now()).toUtc();
     if (!referenceNow.isBefore(recommendation.dueAt)) {
-      alerts.add('Esta palavra-passe devia ser mudada.');
+      alerts.add('Esta palavra-passe deve ser alterada.');
     }
     return alerts;
   }

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../models/tag_display_mode.dart';
 import '../../models/vault_sort_mode.dart';
 import '../../utils/constants.dart';
 import '../vault/trash_retention_policy.dart';
@@ -171,6 +172,34 @@ class PreferencesService {
       PrefsKeys.ignoredEntryAlertExpiries,
       jsonEncode(expiries),
     );
+  }
+
+  Future<TagDisplayMode> getTagDisplayMode() async {
+    final prefs = await SharedPreferences.getInstance();
+    return tagDisplayModeFromPreference(
+      prefs.getString(PrefsKeys.tagDisplayMode),
+    );
+  }
+
+  Future<void> setTagDisplayMode(TagDisplayMode mode) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(PrefsKeys.tagDisplayMode, mode.preferenceValue);
+  }
+
+  Future<List<String>> getExposedHomeTagKeys() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getStringList(PrefsKeys.exposedHomeTagKeys) ?? const [];
+  }
+
+  Future<void> setExposedHomeTagKeys(Iterable<String> keys) async {
+    final prefs = await SharedPreferences.getInstance();
+    final normalized =
+        keys.where((key) => key.trim().isNotEmpty).toSet().toList()..sort();
+    if (normalized.isEmpty) {
+      await prefs.remove(PrefsKeys.exposedHomeTagKeys);
+      return;
+    }
+    await prefs.setStringList(PrefsKeys.exposedHomeTagKeys, normalized);
   }
 
   Future<ThemeMode> getThemeMode() async {

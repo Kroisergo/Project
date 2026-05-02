@@ -22,25 +22,25 @@ class PasswordFeedbackService {
     if (value.length < 8) {
       feedback.add('Muito curta.');
     } else if (value.length < 12) {
-      feedback.add('Curta; 12 ou mais caracteres e recomendado.');
+      feedback.add('Curta; recomenda-se 12 ou mais caracteres.');
     }
     if (!RegExp(r'[A-Z]').hasMatch(value)) {
-      feedback.add('Sem letras maiusculas.');
+      feedback.add('Sem letras maiúsculas.');
     }
     if (!RegExp(r'[a-z]').hasMatch(value)) {
-      feedback.add('Sem letras minusculas.');
+      feedback.add('Sem letras minúsculas.');
     }
     if (!RegExp(r'[0-9]').hasMatch(value)) {
-      feedback.add('Sem numeros.');
+      feedback.add('Sem números.');
     }
     if (!RegExp(r'[^A-Za-z0-9]').hasMatch(value)) {
-      feedback.add('Sem simbolos.');
+      feedback.add('Sem símbolos.');
     }
     if (RegExp(r'(.)\1{2,}').hasMatch(value)) {
       feedback.add('Tem caracteres demasiado repetidos.');
     }
     if (_hasCommonPattern(lower)) {
-      feedback.add('Contem padroes comuns ou previsiveis.');
+      feedback.add('Contém padrões comuns ou previsíveis.');
     }
     if (isReused) {
       feedback.add('Parece reutilizada noutra entrada.');
@@ -52,7 +52,7 @@ class PasswordFeedbackService {
       } else if (strength == PasswordStrength.strong) {
         feedback.add('Forte.');
       } else {
-        feedback.add('Razoavel; podes melhorar com mais comprimento.');
+        feedback.add('Razoável; podes melhorar com mais comprimento.');
       }
     }
 

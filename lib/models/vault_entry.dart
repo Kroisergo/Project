@@ -1,6 +1,6 @@
 enum VaultEntryCategory {
   social('social', 'Social', 0),
-  email('email', 'Email', 1),
+  email('email', 'Correio eletrónico', 1),
   bank('bank', 'Banco', 2),
   games('games', 'Jogos', 3),
   work('work', 'Trabalho', 4),

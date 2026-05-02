@@ -22,6 +22,8 @@ import '../../utils/router_paths.dart';
 import '../../widgets/password_policy_status.dart';
 import '../../widgets/sensitive_action_confirmation.dart';
 import '../unlock/unlock_page.dart';
+import 'widgets/ignored_alerts_section.dart';
+import 'widgets/tag_display_settings_section.dart';
 
 typedef _SettingsCategoryBuilder =
     List<Widget> Function(BuildContext context, VoidCallback refresh);
@@ -270,8 +272,8 @@ class _VaultSettingsPageState extends ConsumerState<VaultSettingsPage>
       SnackBar(
         content: Text(
           minutes == PreferencesService.autoLockNever
-              ? 'Auto-lock desativado.'
-              : 'Auto-lock ajustado para $minutes minutos',
+              ? 'Bloqueio automático desativado.'
+              : 'Bloqueio automático ajustado para $minutes minutos.',
         ),
       ),
     );
@@ -336,8 +338,8 @@ class _VaultSettingsPageState extends ConsumerState<VaultSettingsPage>
       SnackBar(
         content: Text(
           value
-              ? 'Histórico de palavra-passes ativado.'
-              : 'Histórico de palavra-passes desativado.',
+              ? 'Histórico de palavras-passe ativado.'
+              : 'Histórico de palavras-passe desativado.',
         ),
       ),
     );
@@ -401,7 +403,7 @@ class _VaultSettingsPageState extends ConsumerState<VaultSettingsPage>
       final confirmed = await _confirmDisableProtection(
         title: 'Desativar proteção visual?',
         message:
-            'Sem esta proteção, a app não cobre o conteúdo quando passa para segundo plano.',
+            'Sem esta proteção, a aplicação não cobre o conteúdo quando passa para segundo plano.',
       );
       if (!confirmed || !mounted) return;
     }
@@ -522,7 +524,7 @@ class _VaultSettingsPageState extends ConsumerState<VaultSettingsPage>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Configurar Cofre')),
+      appBar: AppBar(title: const Text('Configurar cofre')),
       body: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTap: () => _autoLock.restart(),
@@ -556,7 +558,7 @@ class _VaultSettingsPageState extends ConsumerState<VaultSettingsPage>
                     secondary: const Icon(Icons.verified_user_outlined),
                     title: const Text('Pedir confirmação para ações sensíveis'),
                     subtitle: const Text(
-                      'Quando ativo, exportar, importar, apagar definitivamente ou alterar proteções exige confirmação adicional.',
+                      'Quando ativo, exportar, importar, eliminar definitivamente ou alterar proteções exige confirmação adicional.',
                     ),
                     value: _requireSensitiveActionConfirmation,
                     onChanged: _busy
@@ -571,7 +573,7 @@ class _VaultSettingsPageState extends ConsumerState<VaultSettingsPage>
                   const Divider(height: 1),
                   SwitchListTile(
                     secondary: const Icon(Icons.history_outlined),
-                    title: const Text('Guardar histórico de palavra-passes'),
+                    title: const Text('Guardar histórico de palavras-passe'),
                     subtitle: const Text(
                       'Quando ativo, as palavras-passe antigas ficam guardadas cifradas dentro do cofre.',
                     ),
@@ -588,9 +590,9 @@ class _VaultSettingsPageState extends ConsumerState<VaultSettingsPage>
                   const Divider(height: 1),
                   SwitchListTile(
                     secondary: const Icon(Icons.screenshot_monitor_outlined),
-                    title: const Text('ProteÃ§Ã£o contra printscreen'),
+                    title: const Text('Proteção contra capturas de ecrã'),
                     subtitle: const Text(
-                      'Bloqueia capturas do ecrÃ£ quando suportado pelo sistema.',
+                      'Bloqueia capturas de ecrã quando suportado pelo sistema.',
                     ),
                     value: _protectScreenshots,
                     onChanged: _busy
@@ -605,9 +607,9 @@ class _VaultSettingsPageState extends ConsumerState<VaultSettingsPage>
                   const Divider(height: 1),
                   SwitchListTile(
                     secondary: const Icon(Icons.visibility_off_outlined),
-                    title: const Text('ProteÃ§Ã£o visual'),
+                    title: const Text('Proteção visual'),
                     subtitle: const Text(
-                      'Cobre a app quando passa para segundo plano.',
+                      'Cobre a aplicação quando passa para segundo plano.',
                     ),
                     value: _visualProtection,
                     onChanged: _busy
@@ -622,9 +624,9 @@ class _VaultSettingsPageState extends ConsumerState<VaultSettingsPage>
                   const Divider(height: 1),
                   SwitchListTile(
                     secondary: const Icon(Icons.videocam_off_outlined),
-                    title: const Text('ProteÃ§Ã£o contra vÃ­deo'),
+                    title: const Text('Proteção contra gravação de ecrã'),
                     subtitle: const Text(
-                      'Bloqueia gravaÃ§Ã£o do ecrÃ£ quando suportado pelo sistema.',
+                      'Bloqueia a gravação do ecrã quando suportado pelo sistema.',
                     ),
                     value: _protectScreenRecording,
                     onChanged: _busy
@@ -740,11 +742,11 @@ class _VaultSettingsPageState extends ConsumerState<VaultSettingsPage>
             ),
             const SizedBox(height: 16),
             _SettingsCategoryTile(
-              title: 'Dados / Backup',
-              subtitle: 'Exportar, importar e verificar backups',
+              title: 'Dados / cópias de segurança',
+              subtitle: 'Exportar, importar e verificar cópias de segurança',
               icon: Icons.folder_outlined,
               onTap: () => _openCategory(
-                title: 'Dados / Backup',
+                title: 'Dados / cópias de segurança',
                 builder: (context, refresh) => [
                   Padding(
                     padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
@@ -786,13 +788,13 @@ class _VaultSettingsPageState extends ConsumerState<VaultSettingsPage>
                     child: TextFormField(
                       controller: _backupController,
                       decoration: const InputDecoration(
-                        labelText: 'Backup a verificar (.vltx)',
+                        labelText: 'Cópia de segurança a verificar (.vltx)',
                       ),
                     ),
                   ),
                   ListTile(
                     leading: const Icon(Icons.verified_outlined),
-                    title: const Text('Verificar backup'),
+                    title: const Text('Verificar cópia de segurança'),
                     subtitle: const Text('Valida a estrutura sem importar'),
                     onTap: _busy
                         ? null
@@ -868,20 +870,22 @@ class _VaultSettingsPageState extends ConsumerState<VaultSettingsPage>
                             },
                     ),
                   ),
+                  const Divider(height: 1),
+                  const TagDisplaySettingsSection(),
                 ],
               ),
             ),
             const SizedBox(height: 16),
             _SettingsCategoryTile(
               title: 'Sessão',
-              subtitle: 'Auto-lock e sessão',
+              subtitle: 'Bloqueio automático e sessão',
               icon: Icons.lock_clock_outlined,
               onTap: () => _openCategory(
                 title: 'Sessão',
                 builder: (context, refresh) => [
                   ListTile(
                     leading: const Icon(Icons.timer),
-                    title: const Text('Auto-lock'),
+                    title: const Text('Bloqueio automático'),
                     subtitle: const Text('Tempo de inatividade até bloquear'),
                     trailing: DropdownButton<int>(
                       value: _autoLockMinutes,
@@ -1394,7 +1398,7 @@ class _TrashPinChangeDialogState extends State<_TrashPinChangeDialog> {
 
     if (!changed) {
       setState(() {
-        _oldPinError = 'PIN antigo incorreto';
+        _oldPinError = 'PIN antigo incorreto.';
         _submitting = false;
       });
       return;
@@ -1604,6 +1608,10 @@ class _PasswordHealthDashboard extends ConsumerWidget {
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
           child: Text(report.summary),
         ),
+        IgnoredAlertsSection(
+          entries: entries,
+          ignoredAlertExpiries: ignoredAlertExpiries,
+        ),
         const Divider(height: 1),
         _HealthStatTile(label: 'Total de entradas ativas', value: report.total),
         _HealthIssueTile(
@@ -1643,7 +1651,7 @@ class _PasswordHealthDashboard extends ConsumerWidget {
           ignoredAlertExpiries: ignoredAlertExpiries,
         ),
         _HealthIssueTile(
-          label: 'Sem categoria/tag',
+          label: 'Sem categoria/etiqueta',
           value: report.uncategorized,
           issue: PasswordHealthIssue.uncategorized,
           entries: entries,

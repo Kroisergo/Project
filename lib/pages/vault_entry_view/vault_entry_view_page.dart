@@ -114,7 +114,7 @@ class _VaultEntryViewPageState extends ConsumerState<VaultEntryViewPage>
     final allowed = await _confirmHistoryAccess(
       title: 'Confirmar remoção do histórico',
       message:
-          'Introduz a palavra-passe mestra para apagar esta palavra-passe antiga do histórico.',
+          'Introduz a palavra-passe mestra para eliminar esta palavra-passe antiga do histórico.',
     );
     if (!allowed || !mounted) return false;
     await ref
@@ -122,7 +122,7 @@ class _VaultEntryViewPageState extends ConsumerState<VaultEntryViewPage>
         .removePasswordHistoryItem(id: entryId, historyIndex: historyIndex);
     if (!mounted) return false;
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Palavra-passe antiga apagada.')),
+      const SnackBar(content: Text('Palavra-passe antiga eliminada.')),
     );
     return true;
   }
@@ -139,7 +139,7 @@ class _VaultEntryViewPageState extends ConsumerState<VaultEntryViewPage>
     await ref.read(vaultProvider.notifier).clearPasswordHistory(entryId);
     if (!mounted) return false;
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Histórico de palavra-passes limpo.')),
+      const SnackBar(content: Text('Histórico de palavras-passe limpo.')),
     );
     return true;
   }
@@ -170,7 +170,7 @@ class _VaultEntryViewPageState extends ConsumerState<VaultEntryViewPage>
     final result = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Apagar entrada?'),
+        title: const Text('Eliminar entrada?'),
         content: const Text('A entrada será movida para o Lixo.'),
         actions: [
           Column(
@@ -183,7 +183,7 @@ class _VaultEntryViewPageState extends ConsumerState<VaultEntryViewPage>
                   foregroundColor: Theme.of(context).colorScheme.onError,
                 ),
                 onPressed: () => Navigator.of(context).pop(true),
-                child: const Text('Apagar'),
+                child: const Text('Eliminar'),
               ),
               TextButton(
                 onPressed: () => Navigator.of(context).pop(false),
@@ -391,7 +391,7 @@ class _VaultEntryViewPageState extends ConsumerState<VaultEntryViewPage>
                     if (entry.url.trim().isNotEmpty) ...[
                       const SizedBox(height: 12),
                       _fieldRow(
-                        'URL / Website',
+                        'URL / site',
                         entry.url,
                         onCopy: () => _copy('URL', entry.url),
                       ),
@@ -708,7 +708,7 @@ class _EntryDetailsSheet extends StatelessWidget {
                   icon: const Icon(Icons.history),
                   label: Text(
                     historyEnabled
-                        ? 'Ver histórico de palavra-passes'
+                        ? 'Ver histórico de palavras-passe'
                         : 'Histórico oculto nas configurações',
                   ),
                 ),
@@ -793,9 +793,9 @@ class _PasswordHistorySheetState extends State<_PasswordHistorySheet> {
 
   Future<void> _deleteItem(int historyIndex) async {
     final confirmed = await _confirm(
-      title: 'Apagar palavra-passe antiga?',
-      message: 'Esta entrada do histórico será removida do cofre.',
-      action: 'Apagar',
+      title: 'Eliminar palavra-passe antiga?',
+      message: 'Esta entrada do histórico será eliminada do cofre.',
+      action: 'Eliminar',
     );
     if (confirmed != true || !mounted) return;
     final removed = await widget.onDelete(historyIndex);
@@ -810,7 +810,7 @@ class _PasswordHistorySheetState extends State<_PasswordHistorySheet> {
     final confirmed = await _confirm(
       title: 'Limpar histórico?',
       message:
-          'Todas as palavras-passe antigas desta entrada serão removidas do cofre.',
+          'Todas as palavras-passe antigas desta entrada serão eliminadas do cofre.',
       action: 'Limpar',
     );
     if (confirmed != true || !mounted) return;
@@ -868,7 +868,7 @@ class _PasswordHistorySheetState extends State<_PasswordHistorySheet> {
               children: [
                 Expanded(
                   child: Text(
-                    'Histórico de palavra-passes',
+                    'Histórico de palavras-passe',
                     style: Theme.of(context).textTheme.titleLarge,
                   ),
                 ),
@@ -899,7 +899,7 @@ class _PasswordHistorySheetState extends State<_PasswordHistorySheet> {
               child: _history.isEmpty
                   ? const Padding(
                       padding: EdgeInsets.only(bottom: 16),
-                      child: Text('Sem histórico de palavra-passes.'),
+                      child: Text('Sem histórico de palavras-passe.'),
                     )
                   : ListView.separated(
                       shrinkWrap: true,
@@ -924,7 +924,7 @@ class _PasswordHistorySheetState extends State<_PasswordHistorySheet> {
                                 onPressed: () => _copyItem(item),
                               ),
                               IconButton(
-                                tooltip: 'Apagar',
+                                tooltip: 'Eliminar',
                                 icon: const Icon(Icons.delete_outline),
                                 onPressed: () => _deleteItem(historyIndex),
                               ),

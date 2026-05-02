@@ -45,13 +45,13 @@ extension VaultSortModePreference on VaultSortMode {
       case VaultSortMode.oldest:
         return 'Mais antigo';
       case VaultSortMode.recentlyEdited:
-        return 'Editado recentemente';
+        return 'Editadas recentemente';
       case VaultSortMode.recentlyOpened:
-        return 'Abertos recentemente';
+        return 'Abertas recentemente';
       case VaultSortMode.mostUsed:
-        return 'Mais utilizado';
+        return 'Mais utilizadas';
       case VaultSortMode.leastUsed:
-        return 'Menos utilizado';
+        return 'Menos utilizadas';
       case VaultSortMode.category:
         return 'Categoria';
     }

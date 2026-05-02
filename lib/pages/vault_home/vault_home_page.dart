@@ -2,11 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../models/tag_display_mode.dart';
 import '../../models/vault_entry.dart';
 import '../../models/vault_sort_mode.dart';
 import '../../services/security/ignored_alerts_controller.dart';
 import '../../services/security/password_health_service.dart';
 import '../../services/vault/auto_lock_controller.dart';
+import '../../services/vault/tag_display_controller.dart';
 import '../../services/vault/vault_sort_controller.dart';
 import '../../services/vault/vault_state.dart';
 import '../../utils/router_paths.dart';
@@ -121,7 +123,7 @@ class _VaultHomePageState extends ConsumerState<VaultHomePage>
     if (!mounted) return;
     ScaffoldMessenger.of(
       context,
-    ).showSnackBar(const SnackBar(content: Text('Sessao bloqueada.')));
+    ).showSnackBar(const SnackBar(content: Text('Sessão bloqueada.')));
     context.go(UnlockPage.routePath);
   }
 
@@ -156,10 +158,10 @@ class _VaultHomePageState extends ConsumerState<VaultHomePage>
       builder: (context) => AlertDialog(
         title: Text(
           selectedCount == 1
-              ? 'Apagar entrada selecionada?'
-              : 'Apagar $selectedCount entradas selecionadas?',
+              ? 'Eliminar entrada selecionada?'
+              : 'Eliminar $selectedCount entradas selecionadas?',
         ),
-        content: const Text('As entradas serao movidas para o Lixo.'),
+        content: const Text('As entradas serão movidas para o Lixo.'),
         actions: [
           Column(
             mainAxisSize: MainAxisSize.min,
@@ -171,7 +173,7 @@ class _VaultHomePageState extends ConsumerState<VaultHomePage>
                   foregroundColor: Theme.of(context).colorScheme.onError,
                 ),
                 onPressed: () => Navigator.of(context).pop(true),
-                child: const Text('Apagar'),
+                child: const Text('Eliminar'),
               ),
               TextButton(
                 onPressed: () => Navigator.of(context).pop(false),
@@ -205,7 +207,7 @@ class _VaultHomePageState extends ConsumerState<VaultHomePage>
       builder: (dialogContext) => AlertDialog(
         title: const Text('Alertas de palavras-passe'),
         content: const Text(
-          'Existem palavras-passe que precisam de atencao. Para veres quais sao e os detalhes, abre Configuracoes e depois Saude.',
+          'Existem palavras-passe que precisam de atenção. Para veres quais são e os detalhes, abre Configurações e depois Saúde.',
         ),
         actions: [
           TextButton(
@@ -217,7 +219,7 @@ class _VaultHomePageState extends ConsumerState<VaultHomePage>
               Navigator.of(dialogContext).pop();
               context.push(RouterPaths.vaultSettings);
             },
-            child: const Text('Abrir configuracoes'),
+            child: const Text('Abrir configurações'),
           ),
         ],
       ),
@@ -231,7 +233,9 @@ class _VaultHomePageState extends ConsumerState<VaultHomePage>
         .setEntryFavorite(entry.id, !entry.isFavorite);
   }
 
-  Future<void> _showQuickEntry() async {
+  // REMOVIDO: Modal rápido antigo não utilizado pelo FAB +.
+  // Seguro remover; funcionalidade atual usa RouterPaths.vaultEntryNew.
+  Future<void> _openNewEntry() async {
     final parentContext = context;
     await _autoLock.restart();
     if (!parentContext.mounted) return;
@@ -244,6 +248,9 @@ class _VaultHomePageState extends ConsumerState<VaultHomePage>
     final vault = ref.watch(vaultProvider);
     final sortMode =
         ref.watch(vaultSortControllerProvider).valueOrNull ?? VaultSortMode.az;
+    final tagDisplaySettings =
+        ref.watch(tagDisplayControllerProvider).valueOrNull ??
+        const TagDisplaySettings();
     final ignoredAlertExpiries = ref.watch(
       ignoredEntryAlertsProvider.select((value) => value.valueOrNull),
     );
@@ -261,10 +268,16 @@ class _VaultHomePageState extends ConsumerState<VaultHomePage>
     }
     final sortedTags = tags.toList()
       ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+    final visibleHomeTags = _visibleHomeTags(sortedTags, tagDisplaySettings);
+    final visibleHomeTagSet = visibleHomeTags.toSet();
+    final effectiveSelectedTags =
+        tagDisplaySettings.mode == TagDisplayMode.hidden
+        ? <String>{}
+        : _selectedTags.where(visibleHomeTagSet.contains).toSet();
     final filtered = filterAndSortEntries(
       entries: entries,
       query: _query,
-      selectedTags: _selectedTags,
+      selectedTags: effectiveSelectedTags,
       sortMode: sortMode,
       selectedCategory: _selectedCategory,
       favoritesOnly: _favoritesOnly,
@@ -291,13 +304,13 @@ class _VaultHomePageState extends ConsumerState<VaultHomePage>
         actions: [
           if (_selectionMode)
             IconButton(
-              tooltip: 'Cancelar selecao',
+              tooltip: 'Cancelar seleção',
               icon: const Icon(Icons.close_rounded),
               onPressed: () => setState(_selectedEntryIds.clear),
             ),
           if (_selectionMode)
             IconButton(
-              tooltip: 'Apagar selecionadas',
+              tooltip: 'Eliminar selecionadas',
               icon: const Icon(Icons.delete_outline_rounded),
               onPressed: _deleteSelectedEntries,
             ),
@@ -332,7 +345,7 @@ class _VaultHomePageState extends ConsumerState<VaultHomePage>
           if (!_selectionMode)
             IconButton(
               icon: const Icon(Icons.settings_outlined),
-              tooltip: 'Configuracoes',
+              tooltip: 'Configurações',
               onPressed: () async {
                 await _autoLock.refreshTimeout();
                 if (!context.mounted) return;
@@ -392,10 +405,10 @@ class _VaultHomePageState extends ConsumerState<VaultHomePage>
                           setState(() => _selectedCategory = category);
                         },
                       ),
-                      if (sortedTags.isNotEmpty)
+                      if (visibleHomeTags.isNotEmpty)
                         _VaultTagStrip(
-                          tags: sortedTags,
-                          selectedTags: _selectedTags,
+                          tags: visibleHomeTags,
+                          selectedTags: effectiveSelectedTags,
                           onClearTags: () {
                             _autoLock.restart();
                             setState(() => _selectedTags = {});
@@ -470,7 +483,7 @@ class _VaultHomePageState extends ConsumerState<VaultHomePage>
               tooltip: 'Nova entrada',
               backgroundColor: colors.surface,
               foregroundColor: colors.accent,
-              onPressed: _showQuickEntry,
+              onPressed: _openNewEntry,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(14),
               ),
@@ -554,7 +567,7 @@ class _VaultSearchBar extends StatelessWidget {
         textInputAction: TextInputAction.search,
         style: TextStyle(color: colors.primaryText, fontSize: 14),
         decoration: InputDecoration(
-          hintText: 'Procurar contas, utilizadores, URLs ou tags',
+          hintText: 'Procurar contas, utilizadores, URLs ou etiquetas',
           hintStyle: TextStyle(color: colors.mutedText),
           prefixIcon: Icon(
             Icons.search_rounded,
@@ -673,7 +686,7 @@ class _VaultTagStrip extends StatelessWidget {
       child: Row(
         children: [
           _VaultChoiceChip(
-            label: 'Todas tags',
+            label: 'Todas as etiquetas',
             selected: selectedTags.isEmpty,
             onSelected: (selected) {
               if (selected) onClearTags();
@@ -1212,7 +1225,7 @@ class _VaultEmptyState extends StatelessWidget {
               ),
               const SizedBox(height: 8),
               Text(
-                'Cria a primeira conta para comecar a organizar o teu cofre.',
+                'Cria a primeira conta para começar a organizar o teu cofre.',
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   color: colors.secondaryText,
@@ -1272,6 +1285,20 @@ class _VaultNoResultsState extends StatelessWidget {
         ),
       ),
     );
+  }
+}
+
+List<String> _visibleHomeTags(
+  List<String> sortedTags,
+  TagDisplaySettings settings,
+) {
+  switch (settings.mode) {
+    case TagDisplayMode.all:
+      return sortedTags;
+    case TagDisplayMode.custom:
+      return sortedTags.where(settings.isTagExposed).toList();
+    case TagDisplayMode.hidden:
+      return const [];
   }
 }
 

@@ -44,11 +44,11 @@ class VaultRepository {
     try {
       final totalLen = await raf.length();
       if (totalLen < 4) {
-        throw const VaultLoadException('Header inválido.');
+        throw const VaultLoadException('Cabeçalho do cofre inválido.');
       }
       final headerLenBytes = await raf.read(4);
       if (headerLenBytes.length != 4) {
-        throw const VaultLoadException('Header inválido.');
+        throw const VaultLoadException('Cabeçalho do cofre inválido.');
       }
       final headerLen = ByteData.sublistView(
         Uint8List.fromList(headerLenBytes),
@@ -57,11 +57,11 @@ class VaultRepository {
       if (headerLen == 0 ||
           headerLen > maxHeaderLen ||
           headerLen > totalLen - 4) {
-        throw const VaultLoadException('Header inválido.');
+        throw const VaultLoadException('Cabeçalho do cofre inválido.');
       }
       headerBytes = Uint8List.fromList(await raf.read(headerLen));
       if (headerBytes.lengthInBytes != headerLen) {
-        throw const VaultLoadException('Header inválido.');
+        throw const VaultLoadException('Cabeçalho do cofre inválido.');
       }
       final remaining = totalLen - 4 - headerLen;
       if (remaining <= 0) {
@@ -86,7 +86,7 @@ class VaultRepository {
     } on VaultLoadException {
       rethrow;
     } catch (_) {
-      throw const VaultLoadException('Header inválido.');
+      throw const VaultLoadException('Cabeçalho do cofre inválido.');
     }
 
     final salt = base64Decode(header.saltB64);
@@ -286,16 +286,16 @@ class VaultRepository {
 
   void _validateHeader(VaultHeader header, SodiumSumo sodium) {
     if (header.magic != VaultConstants.magic) {
-      throw const VaultLoadException('Magic inválido.');
+      throw const VaultLoadException('Identificador do cofre inválido.');
     }
     if (header.formatVersion != VaultConstants.formatVersion) {
       throw const VaultLoadException('Versão não suportada.');
     }
     if (header.cipherId != VaultConstants.cipherId) {
-      throw const VaultLoadException('Cipher não suportada.');
+      throw const VaultLoadException('Cifra não suportada.');
     }
     if (header.kdf != VaultConstants.kdfId) {
-      throw const VaultLoadException('KDF não suportado.');
+      throw const VaultLoadException('Derivação de chave não suportada.');
     }
     if (base64Decode(header.nonceB64).length !=
         sodium.crypto.aeadXChaCha20Poly1305IETF.nonceBytes) {
@@ -312,10 +312,14 @@ class VaultRepository {
         header.memLimit > maxMem ||
         header.opsLimit <= 0 ||
         header.opsLimit > maxOps) {
-      throw const VaultLoadException('Parâmetros KDF inválidos.');
+      throw const VaultLoadException(
+        'Parâmetros de derivação de chave inválidos.',
+      );
     }
     if (header.parallelism <= 0 || header.parallelism > 16) {
-      throw const VaultLoadException('Parâmetros KDF inválidos.');
+      throw const VaultLoadException(
+        'Parâmetros de derivação de chave inválidos.',
+      );
     }
   }
 }

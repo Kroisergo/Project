@@ -31,20 +31,20 @@ class MasterPasswordPolicyResult {
 
   List<PasswordRequirement> get requirements => [
     PasswordRequirement(
-      label: 'Minimo ${MasterPasswordPolicy.minLength} caracteres',
+      label: 'Mínimo ${MasterPasswordPolicy.minLength} caracteres',
       met: hasMinLength,
     ),
     PasswordRequirement(
-      label: 'Pelo menos 1 letra maiuscula',
+      label: 'Pelo menos 1 letra maiúscula',
       met: hasUppercase,
     ),
     PasswordRequirement(
-      label: 'Pelo menos 1 letra minuscula',
+      label: 'Pelo menos 1 letra minúscula',
       met: hasLowercase,
     ),
-    PasswordRequirement(label: 'Pelo menos 1 numero', met: hasNumber),
+    PasswordRequirement(label: 'Pelo menos 1 número', met: hasNumber),
     PasswordRequirement(
-      label: 'Pelo menos 1 caracter especial permitido',
+      label: 'Pelo menos 1 carácter especial permitido',
       met: hasSpecialChar,
     ),
   ];

@@ -159,8 +159,8 @@ class _VaultTrashPageState extends ConsumerState<VaultTrashPage>
         SnackBar(
           content: Text(
             ids.length == 1
-                ? 'Entrada removida definitivamente.'
-                : 'Entradas removidas definitivamente.',
+                ? 'Entrada eliminada definitivamente.'
+                : 'Entradas eliminadas definitivamente.',
           ),
         ),
       );
@@ -320,7 +320,7 @@ class _VaultTrashPageState extends ConsumerState<VaultTrashPage>
         child: _checkingAccess
             ? const Center(child: CircularProgressIndicator())
             : deletedEntries.isEmpty
-            ? const Center(child: Text('O Lixo esta vazio.'))
+            ? const Center(child: Text('O Lixo está vazio.'))
             : Column(
                 children: [
                   Padding(

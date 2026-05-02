@@ -112,7 +112,7 @@ class _UnlockPageState extends ConsumerState<UnlockPage> {
     } on VaultLoadException catch (e) {
       _showSnack(e.message);
     } catch (e) {
-      _showSnack('Falha ao abrir cofre: $e');
+      _showSnack('Falha ao abrir o cofre: $e');
     }
   }
 
@@ -121,7 +121,7 @@ class _UnlockPageState extends ConsumerState<UnlockPage> {
     final isLocked = _penalty.isLocked || _loadingStatus;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Desbloquear Cofre')),
+      appBar: AppBar(title: const Text('Desbloquear cofre')),
       body: Padding(
         padding: const EdgeInsets.all(20),
         child: Column(

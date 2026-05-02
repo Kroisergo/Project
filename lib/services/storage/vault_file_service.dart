@@ -165,7 +165,7 @@ class VaultFileService {
     final trimmedPath = sourcePath.trim();
     if (trimmedPath.isEmpty) {
       return const VaultBackupValidationResult.invalid(
-        'Indica o ficheiro de backup a verificar.',
+        'Indica o ficheiro de cópia de segurança a verificar.',
       );
     }
     final source = File(trimmedPath);
@@ -176,13 +176,13 @@ class VaultFileService {
     try {
       final structure = await _readVaultFileStructure(source);
       return VaultBackupValidationResult.valid(
-        message: 'Backup válido.',
+        message: 'Cópia de segurança válida.',
         header: structure.header,
         payloadBytes: structure.payloadBytes,
       );
     } catch (_) {
       return const VaultBackupValidationResult.invalid(
-        'Backup inválido ou corrompido.',
+        'Cópia de segurança inválida ou corrompida.',
       );
     }
   }
