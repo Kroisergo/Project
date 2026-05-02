@@ -6,8 +6,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../models/vault_entry.dart';
+import '../../services/security/ignored_alerts_controller.dart';
 import '../../services/security/password_entry_recommendation.dart';
 import '../../services/security/password_health_service.dart';
+import '../../services/storage/preferences_service.dart';
 import '../../services/vault/auto_lock_controller.dart';
 import '../../services/vault/vault_state.dart';
 import '../../utils/router_paths.dart';
@@ -31,7 +33,9 @@ class VaultEntryViewPage extends ConsumerStatefulWidget {
 class _VaultEntryViewPageState extends ConsumerState<VaultEntryViewPage>
     with WidgetsBindingObserver {
   bool _obscure = true;
+  bool _notesRevealed = false;
   Timer? _clipboardClear;
+  Timer? _notesRevealTimer;
   int _clipboardToken = 0;
   String? _lastCopiedValue;
   late final AutoLockController _autoLock;
@@ -150,6 +154,16 @@ class _VaultEntryViewPageState extends ConsumerState<VaultEntryViewPage>
     _lastCopiedValue = null;
   }
 
+  void _revealNotesTemporarily() {
+    _autoLock.restart();
+    _notesRevealTimer?.cancel();
+    setState(() => _notesRevealed = true);
+    _notesRevealTimer = Timer(const Duration(seconds: 5), () {
+      if (!mounted) return;
+      setState(() => _notesRevealed = false);
+    });
+  }
+
   Future<void> _confirmDelete(String id) async {
     await _autoLock.restart();
     if (!mounted) return;
@@ -196,8 +210,24 @@ class _VaultEntryViewPageState extends ConsumerState<VaultEntryViewPage>
         .setEntryFavorite(entry.id, !entry.isFavorite);
   }
 
+  Future<void> _ignoreAlert(
+    PasswordHealthEntryAlert alert,
+    IgnoredAlertDurationOption duration,
+  ) async {
+    await _autoLock.restart();
+    if (!mounted) return;
+    await ref
+        .read(ignoredEntryAlertsProvider.notifier)
+        .ignore(alert.ignoreKey, duration);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Alerta ignorado por ${duration.label}.')),
+    );
+  }
+
   void _onLocked() {
     if (!mounted) return;
+    unawaited(_clearClipboardIfCurrent());
     ScaffoldMessenger.of(
       context,
     ).showSnackBar(const SnackBar(content: Text('Sessão bloqueada.')));
@@ -209,6 +239,10 @@ class _VaultEntryViewPageState extends ConsumerState<VaultEntryViewPage>
     PasswordEntryRecommendation? recommendation,
   ) async {
     await _autoLock.restart();
+    if (!mounted) return;
+    final savePasswordHistory = await ref
+        .read(preferencesServiceProvider)
+        .getSavePasswordHistory();
     if (!mounted) return;
     await showModalBottomSheet<void>(
       context: context,
@@ -226,6 +260,7 @@ class _VaultEntryViewPageState extends ConsumerState<VaultEntryViewPage>
           message:
               'Introduz a palavra-passe mestra para revelar palavras-passe antigas.',
         ),
+        historyEnabled: savePasswordHistory,
       ),
     );
   }
@@ -235,6 +270,7 @@ class _VaultEntryViewPageState extends ConsumerState<VaultEntryViewPage>
     WidgetsBinding.instance.removeObserver(this);
     _autoLock.cancel();
     _clipboardClear?.cancel();
+    _notesRevealTimer?.cancel();
     unawaited(_clearClipboardIfCurrent());
     super.dispose();
   }
@@ -255,11 +291,15 @@ class _VaultEntryViewPageState extends ConsumerState<VaultEntryViewPage>
             password: entry.password,
             passwordUpdatedAt: entry.passwordUpdatedAt,
           );
-    final alerts = entry == null
-        ? const <String>[]
-        : PasswordHealthService.alertsForEntry(
+    final ignoredAlertExpiries = ref.watch(
+      ignoredEntryAlertsProvider.select((value) => value.valueOrNull),
+    );
+    final visibleAlerts = entry == null || ignoredAlertExpiries == null
+        ? const <PasswordHealthEntryAlert>[]
+        : PasswordHealthService.visibleAlertsForEntry(
             entries: activeEntries,
             entry: entry,
+            ignoredAlertExpiries: ignoredAlertExpiries,
           );
 
     final actions = entry == null
@@ -317,8 +357,11 @@ class _VaultEntryViewPageState extends ConsumerState<VaultEntryViewPage>
                             style: Theme.of(context).textTheme.headlineSmall,
                           ),
                         ),
-                        if (alerts.isNotEmpty)
-                          _EntryAlertButton(alerts: alerts),
+                        if (visibleAlerts.isNotEmpty)
+                          _EntryAlertButton(
+                            alerts: visibleAlerts,
+                            onIgnore: _ignoreAlert,
+                          ),
                         IconButton(
                           icon: const Icon(Icons.info_outline),
                           tooltip: 'Detalhes',
@@ -360,19 +403,14 @@ class _VaultEntryViewPageState extends ConsumerState<VaultEntryViewPage>
                       onCopy: () => _copy('Palavra-passe', entry.password),
                     ),
                     const SizedBox(height: 12),
-                    _fieldRow(
-                      'Notas',
+                    _notesRow(
                       entry.notes,
-                      onCopy: () => _copy('Notas', entry.notes),
+                      onCopy: _notesRevealed
+                          ? () => _copy('Notas', entry.notes)
+                          : null,
                     ),
                     const SizedBox(height: 16),
-                    if (entry.tags.isNotEmpty)
-                      Wrap(
-                        spacing: 8,
-                        children: entry.tags
-                            .map((tag) => Chip(label: Text(tag)))
-                            .toList(),
-                      ),
+                    if (entry.tags.isNotEmpty) _EntryTags(tags: entry.tags),
                   ],
                 ),
               ),
@@ -399,15 +437,82 @@ class _VaultEntryViewPageState extends ConsumerState<VaultEntryViewPage>
       ],
     );
   }
+
+  Widget _notesRow(String value, {VoidCallback? onCopy}) {
+    final hasNotes = value.trim().isNotEmpty;
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Notas', style: Theme.of(context).textTheme.labelMedium),
+              const SizedBox(height: 4),
+              Text(
+                !hasNotes
+                    ? 'Sem notas.'
+                    : _notesRevealed
+                    ? value
+                    : 'Notas ocultas',
+                style: Theme.of(context).textTheme.bodyLarge,
+              ),
+              if (hasNotes && !_notesRevealed)
+                Text(
+                  'Revela durante 5 segundos.',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+            ],
+          ),
+        ),
+        if (hasNotes)
+          TextButton.icon(
+            onPressed: _notesRevealed
+                ? () {
+                    _notesRevealTimer?.cancel();
+                    setState(() => _notesRevealed = false);
+                  }
+                : _revealNotesTemporarily,
+            icon: Icon(
+              _notesRevealed ? Icons.visibility_off : Icons.visibility,
+            ),
+            label: Text(_notesRevealed ? 'Ocultar' : 'Revelar'),
+          ),
+        if (onCopy != null)
+          IconButton(icon: const Icon(Icons.copy), onPressed: onCopy),
+      ],
+    );
+  }
 }
 
 class _EntryAlertButton extends StatelessWidget {
-  final List<String> alerts;
+  final List<PasswordHealthEntryAlert> alerts;
+  final Future<void> Function(
+    PasswordHealthEntryAlert alert,
+    IgnoredAlertDurationOption duration,
+  )
+  onIgnore;
 
-  const _EntryAlertButton({required this.alerts});
+  const _EntryAlertButton({required this.alerts, required this.onIgnore});
 
-  Future<void> _showAlerts(BuildContext context) {
-    return showDialog<void>(
+  Future<IgnoredAlertDurationOption?> _pickDuration(BuildContext context) {
+    return showDialog<IgnoredAlertDurationOption>(
+      context: context,
+      builder: (context) => SimpleDialog(
+        title: const Text('Ignorar alerta durante'),
+        children: [
+          for (final duration in IgnoredAlertDurationOption.values)
+            SimpleDialogOption(
+              onPressed: () => Navigator.of(context).pop(duration),
+              child: Text(duration.label),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _showAlerts(BuildContext context) async {
+    await showDialog<void>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Alertas'),
@@ -427,7 +532,17 @@ class _EntryAlertButton extends StatelessWidget {
                         color: Theme.of(context).colorScheme.error,
                       ),
                       const SizedBox(width: 8),
-                      Expanded(child: Text(alert)),
+                      Expanded(child: Text(alert.message)),
+                      TextButton(
+                        onPressed: () async {
+                          final navigator = Navigator.of(context);
+                          final duration = await _pickDuration(context);
+                          if (duration == null || !context.mounted) return;
+                          navigator.pop();
+                          await onIgnore(alert, duration);
+                        },
+                        child: const Text('Ignorar'),
+                      ),
                     ],
                   ),
                 ),
@@ -457,6 +572,46 @@ class _EntryAlertButton extends StatelessWidget {
   }
 }
 
+class _EntryTags extends StatefulWidget {
+  const _EntryTags({required this.tags});
+
+  final List<String> tags;
+
+  @override
+  State<_EntryTags> createState() => _EntryTagsState();
+}
+
+class _EntryTagsState extends State<_EntryTags> {
+  static const _visibleLimit = 4;
+  bool _showAll = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final hiddenCount = widget.tags.length - _visibleLimit;
+    final visibleTags = _showAll || hiddenCount <= 0
+        ? widget.tags
+        : widget.tags.take(_visibleLimit).toList();
+
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [
+        ...visibleTags.map((tag) => Chip(label: Text(tag))),
+        if (hiddenCount > 0)
+          ActionChip(
+            avatar: Icon(
+              _showAll ? Icons.expand_less : Icons.more_horiz,
+              size: 18,
+            ),
+            label: Text(_showAll ? 'Menos' : 'Mais ($hiddenCount)'),
+            onPressed: () => setState(() => _showAll = !_showAll),
+          ),
+      ],
+    );
+  }
+}
+
 class _EntryDetailsSheet extends StatelessWidget {
   final VaultEntry entry;
   final PasswordEntryRecommendation? recommendation;
@@ -465,6 +620,7 @@ class _EntryDetailsSheet extends StatelessWidget {
   final Future<bool> Function(int historyIndex) onDeleteHistoryItem;
   final Future<bool> Function() onClearHistory;
   final Future<bool> Function() onRevealHistory;
+  final bool historyEnabled;
 
   const _EntryDetailsSheet({
     required this.entry,
@@ -474,6 +630,7 @@ class _EntryDetailsSheet extends StatelessWidget {
     required this.onDeleteHistoryItem,
     required this.onClearHistory,
     required this.onRevealHistory,
+    required this.historyEnabled,
   });
 
   Future<void> _showHistory(BuildContext context) {
@@ -545,11 +702,24 @@ class _EntryDetailsSheet extends StatelessWidget {
               SizedBox(
                 width: double.infinity,
                 child: OutlinedButton.icon(
-                  onPressed: () => _showHistory(context),
+                  onPressed: historyEnabled
+                      ? () => _showHistory(context)
+                      : null,
                   icon: const Icon(Icons.history),
-                  label: const Text('Ver histórico de palavra-passes'),
+                  label: Text(
+                    historyEnabled
+                        ? 'Ver histórico de palavra-passes'
+                        : 'Histórico oculto nas configurações',
+                  ),
                 ),
               ),
+              if (!historyEnabled)
+                const Padding(
+                  padding: EdgeInsets.only(top: 8),
+                  child: Text(
+                    'As palavras-passe antigas continuam cifradas no cofre, mas não são mostradas enquanto o histórico estiver desativado.',
+                  ),
+                ),
             ],
           ),
         ),

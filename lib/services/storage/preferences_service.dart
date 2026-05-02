@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -111,6 +113,64 @@ class PreferencesService {
   Future<void> setSavePasswordHistory(bool value) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(PrefsKeys.savePasswordHistory, value);
+  }
+
+  Future<bool> getProtectScreenshots() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(PrefsKeys.protectScreenshots) ?? true;
+  }
+
+  Future<void> setProtectScreenshots(bool value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(PrefsKeys.protectScreenshots, value);
+  }
+
+  Future<bool> getVisualProtection() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(PrefsKeys.visualProtection) ?? true;
+  }
+
+  Future<void> setVisualProtection(bool value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(PrefsKeys.visualProtection, value);
+  }
+
+  Future<bool> getProtectScreenRecording() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(PrefsKeys.protectScreenRecording) ?? true;
+  }
+
+  Future<void> setProtectScreenRecording(bool value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(PrefsKeys.protectScreenRecording, value);
+  }
+
+  Future<Map<String, int>> getIgnoredEntryAlertExpiries() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(PrefsKeys.ignoredEntryAlertExpiries);
+    if (raw == null || raw.isEmpty) return {};
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map) return {};
+      return decoded.map((key, value) {
+        final expiry = value is num ? value.toInt() : int.tryParse('$value');
+        return MapEntry('$key', expiry ?? 0);
+      })..removeWhere((_, value) => value <= 0);
+    } catch (_) {
+      return {};
+    }
+  }
+
+  Future<void> setIgnoredEntryAlertExpiries(Map<String, int> expiries) async {
+    final prefs = await SharedPreferences.getInstance();
+    if (expiries.isEmpty) {
+      await prefs.remove(PrefsKeys.ignoredEntryAlertExpiries);
+      return;
+    }
+    await prefs.setString(
+      PrefsKeys.ignoredEntryAlertExpiries,
+      jsonEncode(expiries),
+    );
   }
 
   Future<ThemeMode> getThemeMode() async {

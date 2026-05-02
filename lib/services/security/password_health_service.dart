@@ -16,6 +16,18 @@ enum PasswordHealthIssue {
   oldTrash,
 }
 
+class PasswordHealthEntryAlert {
+  final PasswordHealthIssue issue;
+  final String message;
+  final String ignoreKey;
+
+  const PasswordHealthEntryAlert({
+    required this.issue,
+    required this.message,
+    required this.ignoreKey,
+  });
+}
+
 class PasswordHealthReport {
   final int total;
   final int weak;
@@ -69,6 +81,7 @@ class PasswordHealthService {
     List<VaultEntry> entries, {
     DateTime? now,
     TrashRetentionOption trashRetention = TrashRetentionPolicy.defaultOption,
+    Map<String, int> ignoredAlertExpiries = const {},
   }) {
     final activeEntries = entries.where((entry) => !entry.isDeleted).toList();
     final deletedEntries = entries.where((entry) => entry.isDeleted).toList();
@@ -86,20 +99,55 @@ class PasswordHealthService {
     for (final entry in activeEntries) {
       final password = entry.password;
       if (password.trim().isEmpty) {
-        empty++;
-        weak++;
+        if (!isIssueIgnored(
+          entry: entry,
+          issue: PasswordHealthIssue.empty,
+          ignoredAlertExpiries: ignoredAlertExpiries,
+          now: referenceNow,
+        )) {
+          empty++;
+        }
+        if (!isIssueIgnored(
+          entry: entry,
+          issue: PasswordHealthIssue.weak,
+          ignoredAlertExpiries: ignoredAlertExpiries,
+          now: referenceNow,
+        )) {
+          weak++;
+        }
       } else if (isWeakPassword(password)) {
-        weak++;
+        if (!isIssueIgnored(
+          entry: entry,
+          issue: PasswordHealthIssue.weak,
+          ignoredAlertExpiries: ignoredAlertExpiries,
+          now: referenceNow,
+        )) {
+          weak++;
+        }
       }
       if (password.isNotEmpty && (passwordCounts[password] ?? 0) > 1) {
-        reused++;
+        if (!isIssueIgnored(
+          entry: entry,
+          issue: PasswordHealthIssue.reused,
+          ignoredAlertExpiries: ignoredAlertExpiries,
+          now: referenceNow,
+        )) {
+          reused++;
+        }
       }
       final recommendation = PasswordEntryRecommendationService.evaluate(
         password: password,
         passwordUpdatedAt: entry.passwordUpdatedAt,
       );
       if (!referenceNow.isBefore(recommendation.dueAt)) {
-        old++;
+        if (!isIssueIgnored(
+          entry: entry,
+          issue: PasswordHealthIssue.old,
+          ignoredAlertExpiries: ignoredAlertExpiries,
+          now: referenceNow,
+        )) {
+          old++;
+        }
       }
       if (entry.tags.isEmpty) {
         uncategorized++;
@@ -117,11 +165,18 @@ class PasswordHealthService {
 
     final oldTrash = deletedEntries
         .where(
-          (entry) => isOldTrashEntry(
-            entry,
-            now: referenceNow,
-            trashRetention: trashRetention,
-          ),
+          (entry) =>
+              isOldTrashEntry(
+                entry,
+                now: referenceNow,
+                trashRetention: trashRetention,
+              ) &&
+              !isIssueIgnored(
+                entry: entry,
+                issue: PasswordHealthIssue.oldTrash,
+                ignoredAlertExpiries: ignoredAlertExpiries,
+                now: referenceNow,
+              ),
         )
         .length;
 
@@ -145,10 +200,11 @@ class PasswordHealthService {
     PasswordHealthIssue issue, {
     DateTime? now,
     TrashRetentionOption trashRetention = TrashRetentionPolicy.defaultOption,
+    Map<String, int> ignoredAlertExpiries = const {},
   }) {
     final referenceNow = (now ?? DateTime.now()).toUtc();
     final activeEntries = entries.where((entry) => !entry.isDeleted).toList();
-    return switch (issue) {
+    final affected = switch (issue) {
       PasswordHealthIssue.weak => activeEntries.where(isWeakEntry).toList(),
       PasswordHealthIssue.reused =>
         activeEntries
@@ -190,6 +246,16 @@ class PasswordHealthService {
             )
             .toList(),
     };
+    return affected
+        .where(
+          (entry) => !isIssueIgnored(
+            entry: entry,
+            issue: issue,
+            ignoredAlertExpiries: ignoredAlertExpiries,
+            now: referenceNow,
+          ),
+        )
+        .toList();
   }
 
   static String reasonForIssue({
@@ -239,6 +305,117 @@ class PasswordHealthService {
         ) +
         1;
     return 'Esta palavra-passe está a ser usada em $count entradas.';
+  }
+
+  static String alertIgnoreKey({
+    required String entryId,
+    required PasswordHealthIssue issue,
+  }) {
+    return '$entryId:${issue.name}';
+  }
+
+  static bool isIssueIgnored({
+    required VaultEntry entry,
+    required PasswordHealthIssue issue,
+    required Map<String, int> ignoredAlertExpiries,
+    DateTime? now,
+  }) {
+    final expiry =
+        ignoredAlertExpiries[alertIgnoreKey(entryId: entry.id, issue: issue)];
+    if (expiry == null) return false;
+    final reference = (now ?? DateTime.now()).toUtc().millisecondsSinceEpoch;
+    return expiry > reference;
+  }
+
+  static List<PasswordHealthEntryAlert> typedAlertsForEntry({
+    required List<VaultEntry> entries,
+    required VaultEntry entry,
+    DateTime? now,
+  }) {
+    final alerts = <PasswordHealthEntryAlert>[];
+    final reuseCount = reuseCountForPassword(
+      entries,
+      entry.password,
+      excludeEntryId: entry.id,
+    );
+    if (reuseCount > 0) {
+      alerts.add(
+        PasswordHealthEntryAlert(
+          issue: PasswordHealthIssue.reused,
+          message:
+              'Esta palavra-passe está a ser usada em ${reuseCount + 1} entradas.',
+          ignoreKey: alertIgnoreKey(
+            entryId: entry.id,
+            issue: PasswordHealthIssue.reused,
+          ),
+        ),
+      );
+    }
+    if (entry.password.trim().isEmpty) {
+      alerts.add(
+        PasswordHealthEntryAlert(
+          issue: PasswordHealthIssue.empty,
+          message: 'Esta entrada não tem palavra-passe guardada.',
+          ignoreKey: alertIgnoreKey(
+            entryId: entry.id,
+            issue: PasswordHealthIssue.empty,
+          ),
+        ),
+      );
+    } else if (isWeakPassword(entry.password)) {
+      alerts.add(
+        PasswordHealthEntryAlert(
+          issue: PasswordHealthIssue.weak,
+          message: 'Esta palavra-passe é fraca.',
+          ignoreKey: alertIgnoreKey(
+            entryId: entry.id,
+            issue: PasswordHealthIssue.weak,
+          ),
+        ),
+      );
+    }
+
+    final recommendation = PasswordEntryRecommendationService.evaluate(
+      password: entry.password,
+      passwordUpdatedAt: entry.passwordUpdatedAt,
+    );
+    final referenceNow = (now ?? DateTime.now()).toUtc();
+    if (!referenceNow.isBefore(recommendation.dueAt)) {
+      alerts.add(
+        PasswordHealthEntryAlert(
+          issue: PasswordHealthIssue.old,
+          message: 'Esta palavra-passe devia ser mudada.',
+          ignoreKey: alertIgnoreKey(
+            entryId: entry.id,
+            issue: PasswordHealthIssue.old,
+          ),
+        ),
+      );
+    }
+    return alerts;
+  }
+
+  static List<PasswordHealthEntryAlert> visibleAlertsForEntry({
+    required List<VaultEntry> entries,
+    required VaultEntry entry,
+    required Map<String, int> ignoredAlertExpiries,
+    DateTime? now,
+  }) {
+    final referenceNow = (now ?? DateTime.now()).toUtc();
+    return typedAlertsForEntry(
+          entries: entries,
+          entry: entry,
+          now: referenceNow,
+        )
+        .where(
+          (alert) => !isIssueIgnored(
+            entry: entry,
+            issue: alert.issue,
+            ignoredAlertExpiries: ignoredAlertExpiries,
+            now: referenceNow,
+          ),
+        )
+        .toList();
   }
 
   static List<String> alertsForEntry({

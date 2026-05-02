@@ -2,10 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../services/security/entry_password_generator.dart';
 import '../../services/security/master_password_policy.dart';
 import '../../services/storage/preferences_service.dart';
 import '../../services/storage/vault_file_service.dart';
 import '../../services/vault/vault_service.dart';
+import '../../widgets/password_generator_options.dart';
 import '../../widgets/password_policy_status.dart';
 import '../unlock/unlock_page.dart';
 import '../welcome/welcome_page.dart';
@@ -25,11 +27,28 @@ class _CreateMasterPageState extends ConsumerState<CreateMasterPage> {
   final _masterController = TextEditingController();
   final _confirmController = TextEditingController();
   final _vaultNameController = TextEditingController();
+  EntryPasswordGeneratorOptions _generatorOptions =
+      const EntryPasswordGeneratorOptions(length: 24);
   bool _obscure = true;
   bool _loading = false;
 
   MasterPasswordPolicyResult get _masterPolicy =>
       MasterPasswordPolicy.evaluate(_masterController.text);
+
+  void _generateMasterPassword() {
+    try {
+      final generated = EntryPasswordGenerator.generate(_generatorOptions);
+      setState(() {
+        _masterController.text = generated;
+        _confirmController.text = generated;
+        _obscure = false;
+      });
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Erro ao gerar palavra-passe: $e')),
+      );
+    }
+  }
 
   @override
   void dispose() {
@@ -135,6 +154,16 @@ class _CreateMasterPageState extends ConsumerState<CreateMasterPage> {
               ),
               const SizedBox(height: 12),
               PasswordPolicyStatus(result: policy),
+              const SizedBox(height: 8),
+              EntryPasswordGeneratorOptionsPanel(
+                options: _generatorOptions,
+                hasPassword: _masterController.text.isNotEmpty,
+                busy: _loading,
+                onChanged: (options) {
+                  setState(() => _generatorOptions = options);
+                },
+                onGenerate: _generateMasterPassword,
+              ),
               const SizedBox(height: 12),
               TextFormField(
                 controller: _confirmController,

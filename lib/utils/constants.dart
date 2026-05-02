@@ -20,4 +20,8 @@ class PrefsKeys {
   static const requireSensitiveActionConfirmation =
       'requireSensitiveActionConfirmation';
   static const savePasswordHistory = 'savePasswordHistory';
+  static const protectScreenshots = 'protectScreenshots';
+  static const visualProtection = 'visualProtection';
+  static const protectScreenRecording = 'protectScreenRecording';
+  static const ignoredEntryAlertExpiries = 'ignoredEntryAlertExpiries';
 }

@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../models/vault_entry.dart';
 import '../../models/vault_sort_mode.dart';
+import '../../services/security/ignored_alerts_controller.dart';
 import '../../services/security/password_health_service.dart';
 import '../../services/vault/auto_lock_controller.dart';
 import '../../services/vault/vault_sort_controller.dart';
@@ -230,15 +231,30 @@ class _VaultHomePageState extends ConsumerState<VaultHomePage>
         .setEntryFavorite(entry.id, !entry.isFavorite);
   }
 
+  Future<void> _showQuickEntry() async {
+    final parentContext = context;
+    await _autoLock.restart();
+    if (!parentContext.mounted) return;
+    parentContext.push(RouterPaths.vaultEntryNew);
+  }
+
   @override
   Widget build(BuildContext context) {
     final colors = _VaultHomeColors.from(context);
     final vault = ref.watch(vaultProvider);
     final sortMode =
         ref.watch(vaultSortControllerProvider).valueOrNull ?? VaultSortMode.az;
+    final ignoredAlertExpiries = ref.watch(
+      ignoredEntryAlertsProvider.select((value) => value.valueOrNull),
+    );
     final entries = vault.data?.activeEntries ?? [];
     final showFilters = shouldShowVaultFilters(entries);
-    final healthReport = PasswordHealthService.analyze(entries);
+    final healthReport = ignoredAlertExpiries == null
+        ? null
+        : PasswordHealthService.analyze(
+            entries,
+            ignoredAlertExpiries: ignoredAlertExpiries,
+          );
     final tags = <String>{};
     for (final entry in entries) {
       tags.addAll(entry.tags);
@@ -285,7 +301,7 @@ class _VaultHomePageState extends ConsumerState<VaultHomePage>
               icon: const Icon(Icons.delete_outline_rounded),
               onPressed: _deleteSelectedEntries,
             ),
-          if (!_selectionMode && healthReport.hasImportantAlerts)
+          if (!_selectionMode && healthReport?.hasImportantAlerts == true)
             IconButton(
               tooltip: 'Alertas de palavras-passe',
               icon: Icon(
@@ -454,10 +470,7 @@ class _VaultHomePageState extends ConsumerState<VaultHomePage>
               tooltip: 'Nova entrada',
               backgroundColor: colors.surface,
               foregroundColor: colors.accent,
-              onPressed: () {
-                _autoLock.restart();
-                context.push(RouterPaths.vaultEntryNew);
-              },
+              onPressed: _showQuickEntry,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(14),
               ),
@@ -913,8 +926,6 @@ class _EntryContent extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = _VaultHomeColors.from(context);
-    final visibleTags = entry.tags.take(3).toList();
-    final extraTags = entry.tags.length - visibleTags.length;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -954,16 +965,9 @@ class _EntryContent extends StatelessWidget {
             ),
           ],
         ),
-        if (visibleTags.isNotEmpty) ...[
+        if (entry.tags.isNotEmpty) ...[
           const SizedBox(height: 10),
-          Wrap(
-            spacing: 6,
-            runSpacing: 6,
-            children: [
-              ...visibleTags.map((tag) => _EntryTag(label: tag)),
-              if (extraTags > 0) _EntryTag(label: '+$extraTags'),
-            ],
-          ),
+          _EntryTagsPreview(tags: entry.tags),
         ],
         const SizedBox(height: 10),
         Row(
@@ -987,6 +991,42 @@ class _EntryContent extends StatelessWidget {
             ),
           ],
         ),
+      ],
+    );
+  }
+}
+
+class _EntryTagsPreview extends StatefulWidget {
+  const _EntryTagsPreview({required this.tags});
+
+  final List<String> tags;
+
+  @override
+  State<_EntryTagsPreview> createState() => _EntryTagsPreviewState();
+}
+
+class _EntryTagsPreviewState extends State<_EntryTagsPreview> {
+  static const _visibleLimit = 3;
+  bool _showAll = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final hiddenCount = widget.tags.length - _visibleLimit;
+    final visibleTags = _showAll || hiddenCount <= 0
+        ? widget.tags
+        : widget.tags.take(_visibleLimit).toList();
+
+    return Wrap(
+      spacing: 6,
+      runSpacing: 6,
+      children: [
+        ...visibleTags.map((tag) => _EntryTag(label: tag)),
+        if (hiddenCount > 0)
+          ActionChip(
+            label: Text(_showAll ? 'Menos' : 'Mais ($hiddenCount)'),
+            visualDensity: VisualDensity.compact,
+            onPressed: () => setState(() => _showAll = !_showAll),
+          ),
       ],
     );
   }

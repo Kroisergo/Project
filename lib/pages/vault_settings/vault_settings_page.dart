@@ -5,8 +5,10 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 import '../../models/vault_entry.dart';
+import '../../services/security/ignored_alerts_controller.dart';
 import '../../services/security/master_password_policy.dart';
 import '../../services/security/password_health_service.dart';
+import '../../services/security/screen_protection_controller.dart';
 import '../../services/security/trash_pin_service.dart';
 import '../../services/storage/preferences_service.dart';
 import '../../services/storage/vault_file_service.dart';
@@ -49,6 +51,9 @@ class _VaultSettingsPageState extends ConsumerState<VaultSettingsPage>
   TrashRetentionOption _trashRetention = TrashRetentionPolicy.defaultOption;
   bool _requireSensitiveActionConfirmation = false;
   bool _savePasswordHistory = true;
+  bool _protectScreenshots = true;
+  bool _visualProtection = true;
+  bool _protectScreenRecording = true;
   Map<TrashPinAction, bool> _trashPinEnabled = const {};
   late final AutoLockController _autoLock;
 
@@ -88,6 +93,9 @@ class _VaultSettingsPageState extends ConsumerState<VaultSettingsPage>
     final requireSensitiveActionConfirmation = await _prefs
         .getRequireSensitiveActionConfirmation();
     final savePasswordHistory = await _prefs.getSavePasswordHistory();
+    final protectScreenshots = await _prefs.getProtectScreenshots();
+    final visualProtection = await _prefs.getVisualProtection();
+    final protectScreenRecording = await _prefs.getProtectScreenRecording();
     final trashPinService = ref.read(trashPinServiceProvider);
     final trashPinEnabled = <TrashPinAction, bool>{};
     for (final action in TrashPinAction.values) {
@@ -106,6 +114,9 @@ class _VaultSettingsPageState extends ConsumerState<VaultSettingsPage>
       _trashRetention = trashRetention;
       _requireSensitiveActionConfirmation = requireSensitiveActionConfirmation;
       _savePasswordHistory = savePasswordHistory;
+      _protectScreenshots = protectScreenshots;
+      _visualProtection = visualProtection;
+      _protectScreenRecording = protectScreenRecording;
       _trashPinEnabled = trashPinEnabled;
     });
   }
@@ -332,6 +343,93 @@ class _VaultSettingsPageState extends ConsumerState<VaultSettingsPage>
     );
   }
 
+  Future<bool> _confirmDisableProtection({
+    required String title,
+    required String message,
+  }) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(title),
+        content: Text(message),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Manter ativa'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Theme.of(context).colorScheme.error,
+              foregroundColor: Theme.of(context).colorScheme.onError,
+            ),
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Desativar'),
+          ),
+        ],
+      ),
+    );
+    return confirmed == true;
+  }
+
+  Future<void> _updateProtectScreenshots(
+    bool value, {
+    VoidCallback? onStateChanged,
+  }) async {
+    await _autoLock.restart();
+    if (!mounted) return;
+    if (!value) {
+      final confirmed = await _confirmDisableProtection(
+        title: 'Desativar proteção contra capturas?',
+        message:
+            'Sem esta proteção, o sistema pode permitir capturas do ecrã com dados sensíveis visíveis.',
+      );
+      if (!confirmed || !mounted) return;
+    }
+    setState(() => _protectScreenshots = value);
+    onStateChanged?.call();
+    await _prefs.setProtectScreenshots(value);
+    await ref.read(screenProtectionControllerProvider).syncProtectionSettings();
+  }
+
+  Future<void> _updateVisualProtection(
+    bool value, {
+    VoidCallback? onStateChanged,
+  }) async {
+    await _autoLock.restart();
+    if (!mounted) return;
+    if (!value) {
+      final confirmed = await _confirmDisableProtection(
+        title: 'Desativar proteção visual?',
+        message:
+            'Sem esta proteção, a app não cobre o conteúdo quando passa para segundo plano.',
+      );
+      if (!confirmed || !mounted) return;
+    }
+    setState(() => _visualProtection = value);
+    onStateChanged?.call();
+    await _prefs.setVisualProtection(value);
+  }
+
+  Future<void> _updateProtectScreenRecording(
+    bool value, {
+    VoidCallback? onStateChanged,
+  }) async {
+    await _autoLock.restart();
+    if (!mounted) return;
+    if (!value) {
+      final confirmed = await _confirmDisableProtection(
+        title: 'Desativar proteção contra gravação?',
+        message:
+            'Sem esta proteção, o sistema pode permitir gravação de ecrã com dados sensíveis visíveis.',
+      );
+      if (!confirmed || !mounted) return;
+    }
+    setState(() => _protectScreenRecording = value);
+    onStateChanged?.call();
+    await _prefs.setProtectScreenRecording(value);
+    await ref.read(screenProtectionControllerProvider).syncProtectionSettings();
+  }
+
   Future<void> _updateTrashPin(
     TrashPinAction action,
     bool enabled, {
@@ -482,6 +580,57 @@ class _VaultSettingsPageState extends ConsumerState<VaultSettingsPage>
                         ? null
                         : (value) async {
                             await _updateSavePasswordHistory(
+                              value,
+                              onStateChanged: refresh,
+                            );
+                          },
+                  ),
+                  const Divider(height: 1),
+                  SwitchListTile(
+                    secondary: const Icon(Icons.screenshot_monitor_outlined),
+                    title: const Text('ProteÃ§Ã£o contra printscreen'),
+                    subtitle: const Text(
+                      'Bloqueia capturas do ecrÃ£ quando suportado pelo sistema.',
+                    ),
+                    value: _protectScreenshots,
+                    onChanged: _busy
+                        ? null
+                        : (value) async {
+                            await _updateProtectScreenshots(
+                              value,
+                              onStateChanged: refresh,
+                            );
+                          },
+                  ),
+                  const Divider(height: 1),
+                  SwitchListTile(
+                    secondary: const Icon(Icons.visibility_off_outlined),
+                    title: const Text('ProteÃ§Ã£o visual'),
+                    subtitle: const Text(
+                      'Cobre a app quando passa para segundo plano.',
+                    ),
+                    value: _visualProtection,
+                    onChanged: _busy
+                        ? null
+                        : (value) async {
+                            await _updateVisualProtection(
+                              value,
+                              onStateChanged: refresh,
+                            );
+                          },
+                  ),
+                  const Divider(height: 1),
+                  SwitchListTile(
+                    secondary: const Icon(Icons.videocam_off_outlined),
+                    title: const Text('ProteÃ§Ã£o contra vÃ­deo'),
+                    subtitle: const Text(
+                      'Bloqueia gravaÃ§Ã£o do ecrÃ£ quando suportado pelo sistema.',
+                    ),
+                    value: _protectScreenRecording,
+                    onChanged: _busy
+                        ? null
+                        : (value) async {
+                            await _updateProtectScreenRecording(
                               value,
                               onStateChanged: refresh,
                             );
@@ -1433,9 +1582,19 @@ class _PasswordHealthDashboard extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final entries = ref.watch(vaultProvider).data?.entries ?? [];
+    final ignoredAlertExpiries = ref.watch(
+      ignoredEntryAlertsProvider.select((value) => value.valueOrNull),
+    );
+    if (ignoredAlertExpiries == null) {
+      return const Padding(
+        padding: EdgeInsets.all(16),
+        child: LinearProgressIndicator(),
+      );
+    }
     final report = PasswordHealthService.analyze(
       entries,
       trashRetention: trashRetention,
+      ignoredAlertExpiries: ignoredAlertExpiries,
     );
 
     return Column(
@@ -1453,6 +1612,7 @@ class _PasswordHealthDashboard extends ConsumerWidget {
           issue: PasswordHealthIssue.weak,
           entries: entries,
           trashRetention: trashRetention,
+          ignoredAlertExpiries: ignoredAlertExpiries,
         ),
         _HealthIssueTile(
           label: 'Palavras-passe reutilizadas',
@@ -1460,6 +1620,7 @@ class _PasswordHealthDashboard extends ConsumerWidget {
           issue: PasswordHealthIssue.reused,
           entries: entries,
           trashRetention: trashRetention,
+          ignoredAlertExpiries: ignoredAlertExpiries,
         ),
         _HealthStatTile(
           label: 'Grupos com palavra-passe repetida',
@@ -1471,6 +1632,7 @@ class _PasswordHealthDashboard extends ConsumerWidget {
           issue: PasswordHealthIssue.old,
           entries: entries,
           trashRetention: trashRetention,
+          ignoredAlertExpiries: ignoredAlertExpiries,
         ),
         _HealthIssueTile(
           label: 'Sem palavra-passe',
@@ -1478,6 +1640,7 @@ class _PasswordHealthDashboard extends ConsumerWidget {
           issue: PasswordHealthIssue.empty,
           entries: entries,
           trashRetention: trashRetention,
+          ignoredAlertExpiries: ignoredAlertExpiries,
         ),
         _HealthIssueTile(
           label: 'Sem categoria/tag',
@@ -1485,6 +1648,7 @@ class _PasswordHealthDashboard extends ConsumerWidget {
           issue: PasswordHealthIssue.uncategorized,
           entries: entries,
           trashRetention: trashRetention,
+          ignoredAlertExpiries: ignoredAlertExpiries,
         ),
         _HealthIssueTile(
           label: 'Nunca abertas',
@@ -1492,6 +1656,7 @@ class _PasswordHealthDashboard extends ConsumerWidget {
           issue: PasswordHealthIssue.neverOpened,
           entries: entries,
           trashRetention: trashRetention,
+          ignoredAlertExpiries: ignoredAlertExpiries,
         ),
         _HealthIssueTile(
           label: 'Pouco usadas',
@@ -1499,6 +1664,7 @@ class _PasswordHealthDashboard extends ConsumerWidget {
           issue: PasswordHealthIssue.rarelyUsed,
           entries: entries,
           trashRetention: trashRetention,
+          ignoredAlertExpiries: ignoredAlertExpiries,
         ),
         _HealthIssueTile(
           label: 'Histórico grande',
@@ -1506,6 +1672,7 @@ class _PasswordHealthDashboard extends ConsumerWidget {
           issue: PasswordHealthIssue.largeHistory,
           entries: entries,
           trashRetention: trashRetention,
+          ignoredAlertExpiries: ignoredAlertExpiries,
         ),
         _HealthIssueTile(
           label: 'No Lixo há muito tempo',
@@ -1513,6 +1680,7 @@ class _PasswordHealthDashboard extends ConsumerWidget {
           issue: PasswordHealthIssue.oldTrash,
           entries: entries,
           trashRetention: trashRetention,
+          ignoredAlertExpiries: ignoredAlertExpiries,
         ),
       ],
     );
@@ -1525,6 +1693,7 @@ class _HealthIssueTile extends StatelessWidget {
   final PasswordHealthIssue issue;
   final List<VaultEntry> entries;
   final TrashRetentionOption trashRetention;
+  final Map<String, int> ignoredAlertExpiries;
 
   const _HealthIssueTile({
     required this.label,
@@ -1532,6 +1701,7 @@ class _HealthIssueTile extends StatelessWidget {
     required this.issue,
     required this.entries,
     required this.trashRetention,
+    required this.ignoredAlertExpiries,
   });
 
   @override
@@ -1540,6 +1710,7 @@ class _HealthIssueTile extends StatelessWidget {
       entries,
       issue,
       trashRetention: trashRetention,
+      ignoredAlertExpiries: ignoredAlertExpiries,
     );
     return _HealthStatTile(
       label: label,

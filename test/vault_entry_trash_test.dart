@@ -1,16 +1,19 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:password_strength_checker/password_strength_checker.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:encryvault/models/vault_data.dart';
 import 'package:encryvault/models/vault_entry.dart';
 import 'package:encryvault/models/vault_sort_mode.dart';
 import 'package:encryvault/services/security/entry_password_generator.dart';
+import 'package:encryvault/services/security/ignored_alerts_controller.dart';
 import 'package:encryvault/services/security/master_password_policy.dart';
 import 'package:encryvault/services/security/password_feedback_service.dart';
 import 'package:encryvault/services/security/password_entry_recommendation.dart';
 import 'package:encryvault/services/security/password_health_service.dart';
 import 'package:encryvault/services/security/screen_protection_controller.dart';
 import 'package:encryvault/services/security/screen_protection_service.dart';
+import 'package:encryvault/services/storage/preferences_service.dart';
 import 'package:encryvault/services/vault/trash_retention_policy.dart';
 import 'package:encryvault/services/vault/vault_data_migrator.dart';
 import 'package:encryvault/services/vault/vault_sort_controller.dart';
@@ -339,6 +342,92 @@ void main() {
       expect(messages, contains('Sem simbolos.'));
       expect(messages, contains('Parece reutilizada noutra entrada.'));
     });
+
+    test('filters ignored alerts by entry and issue until expiry', () {
+      final now = DateTime.utc(2026, 1, 1, 12);
+      final entryA = _entry(id: 'entry-a', password: 'weak', updatedAt: now);
+      final entryB = _entry(id: 'entry-b', password: 'weak', updatedAt: now);
+      final ignoredKey = PasswordHealthService.alertIgnoreKey(
+        entryId: entryA.id,
+        issue: PasswordHealthIssue.weak,
+      );
+      final ignored = {
+        ignoredKey: now.add(const Duration(hours: 1)).millisecondsSinceEpoch,
+      };
+
+      final report = PasswordHealthService.analyze(
+        [entryA, entryB],
+        now: now,
+        ignoredAlertExpiries: ignored,
+      );
+      final affected = PasswordHealthService.entriesForIssue(
+        [entryA, entryB],
+        PasswordHealthIssue.weak,
+        now: now,
+        ignoredAlertExpiries: ignored,
+      );
+      final visibleAlertsA = PasswordHealthService.visibleAlertsForEntry(
+        entries: [entryA, entryB],
+        entry: entryA,
+        ignoredAlertExpiries: ignored,
+        now: now,
+      );
+
+      expect(ignoredKey, 'entry-a:weak');
+      expect(report.weak, 1);
+      expect(affected.map((entry) => entry.id), ['entry-b']);
+      expect(
+        visibleAlertsA.any((alert) => alert.issue == PasswordHealthIssue.weak),
+        isFalse,
+      );
+
+      final expiredReport = PasswordHealthService.analyze(
+        [entryA, entryB],
+        now: now.add(const Duration(hours: 2)),
+        ignoredAlertExpiries: ignored,
+      );
+      expect(expiredReport.weak, 2);
+    });
+
+    test('stores ignored alert expiries without sensitive data', () async {
+      SharedPreferences.setMockInitialValues({});
+      final preferences = PreferencesService();
+      final key = PasswordHealthService.alertIgnoreKey(
+        entryId: 'entry-uuid',
+        issue: PasswordHealthIssue.reused,
+      );
+
+      await preferences.setIgnoredEntryAlertExpiries({key: 1767225600000});
+      final saved = await preferences.getIgnoredEntryAlertExpiries();
+
+      expect(saved, {key: 1767225600000});
+      expect(key, 'entry-uuid:reused');
+      expect(key.contains('Instagram'), isFalse);
+      expect(key.contains('miguel'), isFalse);
+      expect(key.contains('palavra-passe'), isFalse);
+    });
+
+    test('cleans expired ignored alert expiries with controlled time', () {
+      final now = DateTime.utc(2026, 1, 1, 12);
+      final active = PasswordHealthService.alertIgnoreKey(
+        entryId: 'entry-a',
+        issue: PasswordHealthIssue.old,
+      );
+      final expired = PasswordHealthService.alertIgnoreKey(
+        entryId: 'entry-b',
+        issue: PasswordHealthIssue.old,
+      );
+
+      final cleaned = IgnoredAlertExpiries.removeExpired({
+        active: now.add(const Duration(minutes: 1)).millisecondsSinceEpoch,
+        expired: now
+            .subtract(const Duration(minutes: 1))
+            .millisecondsSinceEpoch,
+      }, now: now);
+
+      expect(cleaned, containsPair(active, cleaned[active]));
+      expect(cleaned.containsKey(expired), isFalse);
+    });
   });
 
   group('Trash retention policy', () {
@@ -494,6 +583,7 @@ void main() {
 
   group('Screen protection', () {
     test('is enabled by default only once', () async {
+      SharedPreferences.setMockInitialValues({});
       final service = _FakeScreenProtectionService();
       final controller = ScreenProtectionController(service: service);
 
@@ -504,6 +594,24 @@ void main() {
       expect(service.enableCalls, 1);
       expect(service.enabled, isTrue);
     });
+
+    test(
+      'can be disabled when screenshot and recording protection are off',
+      () async {
+        SharedPreferences.setMockInitialValues({
+          PrefsKeys.protectScreenshots: false,
+          PrefsKeys.protectScreenRecording: false,
+        });
+        final service = _FakeScreenProtectionService();
+        final controller = ScreenProtectionController(service: service);
+
+        await controller.syncProtectionSettings();
+
+        expect(service.enableCalls, 0);
+        expect(service.disableCalls, 1);
+        expect(service.enabled, isFalse);
+      },
+    );
   });
 }
 
@@ -547,10 +655,26 @@ VaultEntry _entry({
 class _FakeScreenProtectionService extends ScreenProtectionService {
   bool enabled = false;
   int enableCalls = 0;
+  int disableCalls = 0;
 
   @override
   Future<void> enable() async {
     enableCalls += 1;
     enabled = true;
+  }
+
+  @override
+  Future<void> disable() async {
+    disableCalls += 1;
+    enabled = false;
+  }
+
+  @override
+  Future<void> setEnabled(bool enabled) async {
+    if (enabled) {
+      await enable();
+    } else {
+      await disable();
+    }
   }
 }

@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../services/security/screen_protection_controller.dart';
+import '../services/storage/preferences_service.dart';
 import '../services/vault/vault_state.dart';
 import '../pages/unlock/unlock_page.dart';
 
@@ -43,6 +44,7 @@ class AppLifecycleLockGuard extends ConsumerStatefulWidget {
 class _AppLifecycleLockGuardState extends ConsumerState<AppLifecycleLockGuard>
     with WidgetsBindingObserver {
   bool _redirectPending = false;
+  bool _showVisualShield = false;
 
   @override
   void initState() {
@@ -59,12 +61,29 @@ class _AppLifecycleLockGuardState extends ConsumerState<AppLifecycleLockGuard>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (_isUnsafeLifecycleState(state)) {
+      _showShieldIfEnabled();
       _lockForLifecycle();
       return;
     }
     if (state == AppLifecycleState.resumed && _redirectPending) {
       _redirectToUnlock();
     }
+    if (state == AppLifecycleState.resumed && _showVisualShield) {
+      setState(() => _showVisualShield = false);
+    }
+  }
+
+  void _showShieldIfEnabled() {
+    unawaited(_showShieldAfterPreferenceCheck());
+  }
+
+  Future<void> _showShieldAfterPreferenceCheck() async {
+    final enabled = await ref
+        .read(preferencesServiceProvider)
+        .getVisualProtection();
+    if (!mounted) return;
+    if (!enabled || _showVisualShield) return;
+    setState(() => _showVisualShield = true);
   }
 
   bool _isUnsafeLifecycleState(AppLifecycleState state) {
@@ -91,6 +110,12 @@ class _AppLifecycleLockGuardState extends ConsumerState<AppLifecycleLockGuard>
 
   @override
   Widget build(BuildContext context) {
-    return widget.child;
+    return Stack(
+      children: [
+        widget.child,
+        if (_showVisualShield)
+          const Positioned.fill(child: ColoredBox(color: Color(0xFF121212))),
+      ],
+    );
   }
 }
