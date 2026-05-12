@@ -1,12 +1,17 @@
+import 'dart:typed_data';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:sodium/sodium_sumo.dart';
 import 'package:uuid/uuid.dart';
 
+import '../../models/vault_container_format.dart';
 import '../../models/vault_data.dart';
+import '../../models/vault_document.dart';
 import '../../models/vault_entry.dart';
 import '../../models/vault_header.dart';
 import '../storage/preferences_service.dart';
 import 'trash_retention_policy.dart';
+import 'vault_document_service.dart';
 import 'vault_repository.dart';
 
 class VaultState {
@@ -14,25 +19,37 @@ class VaultState {
   final VaultData? data;
   final SecureKey? key;
   final String? fileName;
+  final VaultContainerFormat format;
+  final Uint8List? headerBytes;
 
   const VaultState({
     required this.header,
     required this.data,
     required this.key,
     required this.fileName,
+    required this.format,
+    required this.headerBytes,
   });
 
   bool get isUnlocked => header != null && data != null && key != null;
 }
 
 class VaultNotifier extends StateNotifier<VaultState> {
-  VaultNotifier(this._repo, this._prefs)
+  VaultNotifier(this._repo, this._prefs, this._documents)
     : super(
-        const VaultState(header: null, data: null, key: null, fileName: null),
+        const VaultState(
+          header: null,
+          data: null,
+          key: null,
+          fileName: null,
+          format: VaultContainerFormat.v3,
+          headerBytes: null,
+        ),
       );
 
   final VaultRepository _repo;
   final PreferencesService _prefs;
+  final VaultDocumentService _documents;
   final _uuid = const Uuid();
 
   void setVault(
@@ -40,13 +57,111 @@ class VaultNotifier extends StateNotifier<VaultState> {
     VaultData data,
     SecureKey key, {
     String? fileName,
+    VaultContainerFormat format = VaultContainerFormat.v3,
+    Uint8List? headerBytes,
   }) {
     state = VaultState(
       header: header,
       data: data,
       key: key,
       fileName: fileName,
+      format: format,
+      headerBytes: headerBytes,
     );
+  }
+
+  Future<void> _saveCurrentData(VaultState current, VaultData newData) async {
+    final newHeader = await _repo.saveVault(
+      header: current.header!,
+      headerBytes: current.headerBytes,
+      data: newData,
+      key: current.key!,
+      fileName: current.fileName,
+    );
+    state = VaultState(
+      header: newHeader,
+      data: newData,
+      key: current.key,
+      fileName: current.fileName,
+      format: current.format,
+      headerBytes: current.headerBytes,
+    );
+  }
+
+  void _applyDocumentResult(
+    VaultState current,
+    VaultDocumentServiceResult result,
+  ) {
+    _requireSameUnlockedSession(current);
+    state = VaultState(
+      header: result.header,
+      data: result.data.copyWith(documents: [...result.data.documents]),
+      key: current.key,
+      fileName: result.fileName ?? current.fileName,
+      format: result.format,
+      headerBytes: result.headerBytes,
+    );
+  }
+
+  void _applyPendingDocument(
+    VaultState current,
+    VaultDocumentMetadata document,
+  ) {
+    _requireSameUnlockedSession(current);
+    final data = state.data;
+    if (data == null) return;
+    state = VaultState(
+      header: state.header,
+      data: data.copyWith(
+        updatedAt: document.updatedAt,
+        documents: [
+          ...data.documents.where((existing) => existing.id != document.id),
+          document,
+        ],
+      ),
+      key: state.key,
+      fileName: state.fileName,
+      format: state.format,
+      headerBytes: state.headerBytes,
+    );
+  }
+
+  void _removePendingDocument(VaultState current, String documentId) {
+    _requireSameUnlockedSession(current);
+    final data = state.data;
+    if (data == null) return;
+    state = VaultState(
+      header: state.header,
+      data: data.copyWith(
+        documents: data.documents
+            .where((document) => document.id != documentId)
+            .toList(),
+      ),
+      key: state.key,
+      fileName: state.fileName,
+      format: state.format,
+      headerBytes: state.headerBytes,
+    );
+  }
+
+  void _notifyDocumentsUnchanged(VaultState current) {
+    _requireSameUnlockedSession(current);
+    final data = state.data;
+    if (data == null) return;
+    state = VaultState(
+      header: state.header,
+      data: data.copyWith(documents: [...data.documents]),
+      key: state.key,
+      fileName: state.fileName,
+      format: state.format,
+      headerBytes: state.headerBytes,
+    );
+  }
+
+  void _requireSameUnlockedSession(VaultState current) {
+    if (!state.isUnlocked || !identical(state.key, current.key)) {
+      throw const VaultLoadException('Sessão bloqueada.');
+    }
   }
 
   Future<String> addEntry({
@@ -78,23 +193,11 @@ class VaultNotifier extends StateNotifier<VaultState> {
       openCount: 0,
       passwordHistory: const [],
     );
-    final newData = VaultData(
-      version: current.data!.version,
+    final newData = current.data!.copyWith(
       updatedAt: now,
       entries: [...current.data!.entries, newEntry],
     );
-    final newHeader = await _repo.saveVault(
-      header: current.header!,
-      data: newData,
-      key: current.key!,
-      fileName: current.fileName,
-    );
-    state = VaultState(
-      header: newHeader,
-      data: newData,
-      key: current.key,
-      fileName: current.fileName,
-    );
+    await _saveCurrentData(current, newData);
     return newEntry.id;
   }
 
@@ -136,24 +239,8 @@ class VaultNotifier extends StateNotifier<VaultState> {
       );
     }).toList();
 
-    final newData = VaultData(
-      version: current.data!.version,
-      updatedAt: now,
-      entries: entries,
-    );
-
-    final newHeader = await _repo.saveVault(
-      header: current.header!,
-      data: newData,
-      key: current.key!,
-      fileName: current.fileName,
-    );
-    state = VaultState(
-      header: newHeader,
-      data: newData,
-      key: current.key,
-      fileName: current.fileName,
-    );
+    final newData = current.data!.copyWith(updatedAt: now, entries: entries);
+    await _saveCurrentData(current, newData);
   }
 
   Future<void> setEntryFavorite(String id, bool isFavorite) async {
@@ -170,23 +257,8 @@ class VaultNotifier extends StateNotifier<VaultState> {
 
     if (!changed) return;
 
-    final newData = VaultData(
-      version: current.data!.version,
-      updatedAt: now,
-      entries: entries,
-    );
-    final newHeader = await _repo.saveVault(
-      header: current.header!,
-      data: newData,
-      key: current.key!,
-      fileName: current.fileName,
-    );
-    state = VaultState(
-      header: newHeader,
-      data: newData,
-      key: current.key,
-      fileName: current.fileName,
-    );
+    final newData = current.data!.copyWith(updatedAt: now, entries: entries);
+    await _saveCurrentData(current, newData);
   }
 
   Future<void> deleteEntry(String id) async {
@@ -197,23 +269,8 @@ class VaultNotifier extends StateNotifier<VaultState> {
       if (entry.id != id) return entry;
       return entry.copyWith(deletedAt: now, updatedAt: now);
     }).toList();
-    final newData = VaultData(
-      version: current.data!.version,
-      updatedAt: now,
-      entries: newEntries,
-    );
-    final newHeader = await _repo.saveVault(
-      header: current.header!,
-      data: newData,
-      key: current.key!,
-      fileName: current.fileName,
-    );
-    state = VaultState(
-      header: newHeader,
-      data: newData,
-      key: current.key,
-      fileName: current.fileName,
-    );
+    final newData = current.data!.copyWith(updatedAt: now, entries: newEntries);
+    await _saveCurrentData(current, newData);
   }
 
   Future<void> deleteEntries(Set<String> ids) async {
@@ -224,23 +281,8 @@ class VaultNotifier extends StateNotifier<VaultState> {
       if (!ids.contains(entry.id)) return entry;
       return entry.copyWith(deletedAt: now, updatedAt: now);
     }).toList();
-    final newData = VaultData(
-      version: current.data!.version,
-      updatedAt: now,
-      entries: newEntries,
-    );
-    final newHeader = await _repo.saveVault(
-      header: current.header!,
-      data: newData,
-      key: current.key!,
-      fileName: current.fileName,
-    );
-    state = VaultState(
-      header: newHeader,
-      data: newData,
-      key: current.key,
-      fileName: current.fileName,
-    );
+    final newData = current.data!.copyWith(updatedAt: now, entries: newEntries);
+    await _saveCurrentData(current, newData);
   }
 
   Future<void> restoreEntry(String id) async {
@@ -251,71 +293,32 @@ class VaultNotifier extends StateNotifier<VaultState> {
       if (entry.id != id) return entry;
       return entry.copyWith(clearDeletedAt: true, updatedAt: now);
     }).toList();
-    final newData = VaultData(
-      version: current.data!.version,
-      updatedAt: now,
-      entries: newEntries,
-    );
-    final newHeader = await _repo.saveVault(
-      header: current.header!,
-      data: newData,
-      key: current.key!,
-      fileName: current.fileName,
-    );
-    state = VaultState(
-      header: newHeader,
-      data: newData,
-      key: current.key,
-      fileName: current.fileName,
-    );
+    final newData = current.data!.copyWith(updatedAt: now, entries: newEntries);
+    await _saveCurrentData(current, newData);
   }
 
   Future<void> permanentlyDeleteEntries(Set<String> ids) async {
     final current = state;
     if (!current.isUnlocked || ids.isEmpty) return;
     final now = DateTime.now().toUtc();
-    final newData = VaultData(
-      version: current.data!.version,
+    final newData = current.data!.copyWith(
       updatedAt: now,
       entries: current.data!.entries
           .where((entry) => !ids.contains(entry.id))
           .toList(),
     );
-    final newHeader = await _repo.saveVault(
-      header: current.header!,
-      data: newData,
-      key: current.key!,
-      fileName: current.fileName,
-    );
-    state = VaultState(
-      header: newHeader,
-      data: newData,
-      key: current.key,
-      fileName: current.fileName,
-    );
+    await _saveCurrentData(current, newData);
   }
 
   Future<void> emptyTrash() async {
     final current = state;
     if (!current.isUnlocked) return;
     final now = DateTime.now().toUtc();
-    final newData = VaultData(
-      version: current.data!.version,
+    final newData = current.data!.copyWith(
       updatedAt: now,
       entries: current.data!.activeEntries,
     );
-    final newHeader = await _repo.saveVault(
-      header: current.header!,
-      data: newData,
-      key: current.key!,
-      fileName: current.fileName,
-    );
-    state = VaultState(
-      header: newHeader,
-      data: newData,
-      key: current.key,
-      fileName: current.fileName,
-    );
+    await _saveCurrentData(current, newData);
   }
 
   Future<void> purgeExpiredTrash({
@@ -337,23 +340,8 @@ class VaultNotifier extends StateNotifier<VaultState> {
 
     if (entries.length == current.data!.entries.length) return;
 
-    final newData = VaultData(
-      version: current.data!.version,
-      updatedAt: now,
-      entries: entries,
-    );
-    final newHeader = await _repo.saveVault(
-      header: current.header!,
-      data: newData,
-      key: current.key!,
-      fileName: current.fileName,
-    );
-    state = VaultState(
-      header: newHeader,
-      data: newData,
-      key: current.key,
-      fileName: current.fileName,
-    );
+    final newData = current.data!.copyWith(updatedAt: now, entries: entries);
+    await _saveCurrentData(current, newData);
   }
 
   Future<void> markEntryOpened(String id) async {
@@ -370,23 +358,8 @@ class VaultNotifier extends StateNotifier<VaultState> {
 
     if (!changed) return;
 
-    final newData = VaultData(
-      version: current.data!.version,
-      updatedAt: now,
-      entries: entries,
-    );
-    final newHeader = await _repo.saveVault(
-      header: current.header!,
-      data: newData,
-      key: current.key!,
-      fileName: current.fileName,
-    );
-    state = VaultState(
-      header: newHeader,
-      data: newData,
-      key: current.key,
-      fileName: current.fileName,
-    );
+    final newData = current.data!.copyWith(updatedAt: now, entries: entries);
+    await _saveCurrentData(current, newData);
   }
 
   Future<void> removePasswordHistoryItem({
@@ -409,23 +382,8 @@ class VaultNotifier extends StateNotifier<VaultState> {
 
     if (!changed) return;
 
-    final newData = VaultData(
-      version: current.data!.version,
-      updatedAt: now,
-      entries: entries,
-    );
-    final newHeader = await _repo.saveVault(
-      header: current.header!,
-      data: newData,
-      key: current.key!,
-      fileName: current.fileName,
-    );
-    state = VaultState(
-      header: newHeader,
-      data: newData,
-      key: current.key,
-      fileName: current.fileName,
-    );
+    final newData = current.data!.copyWith(updatedAt: now, entries: entries);
+    await _saveCurrentData(current, newData);
   }
 
   Future<void> clearPasswordHistory(String id) async {
@@ -442,23 +400,8 @@ class VaultNotifier extends StateNotifier<VaultState> {
 
     if (!changed) return;
 
-    final newData = VaultData(
-      version: current.data!.version,
-      updatedAt: now,
-      entries: entries,
-    );
-    final newHeader = await _repo.saveVault(
-      header: current.header!,
-      data: newData,
-      key: current.key!,
-      fileName: current.fileName,
-    );
-    state = VaultState(
-      header: newHeader,
-      data: newData,
-      key: current.key,
-      fileName: current.fileName,
-    );
+    final newData = current.data!.copyWith(updatedAt: now, entries: entries);
+    await _saveCurrentData(current, newData);
   }
 
   Future<void> changeMasterPassword({
@@ -480,10 +423,62 @@ class VaultNotifier extends StateNotifier<VaultState> {
     current.key?.dispose();
     state = VaultState(
       header: result.header,
-      data: current.data,
+      data: result.data,
       key: result.key,
       fileName: result.fileName ?? current.fileName,
+      format: vaultContainerFormatFromVersion(result.header.formatVersion),
+      headerBytes: result.headerBytes,
     );
+  }
+
+  Future<String> addDocumentFromFile(String sourcePath) async {
+    final current = state;
+    if (!current.isUnlocked) return '';
+
+    String? pendingDocumentId;
+    try {
+      final result = await _documents.addFromFileWithResult(
+        current: current,
+        sourcePath: sourcePath,
+        onPendingDocument: (document) {
+          pendingDocumentId = document.id;
+          _applyPendingDocument(current, document);
+        },
+      );
+      _applyDocumentResult(current, result);
+      return result.documentId ?? '';
+    } catch (_) {
+      final documentId = pendingDocumentId;
+      if (documentId != null) {
+        try {
+          _removePendingDocument(current, documentId);
+        } catch (_) {
+          // If the session is already locked, avoid resurrecting state.
+        }
+      }
+      rethrow;
+    }
+  }
+
+  Future<void> deleteDocument(String documentId) async {
+    final current = state;
+    if (!current.isUnlocked) return;
+    final result = await _documents.deleteDocumentWithResult(
+      current: current,
+      documentId: documentId,
+    );
+    _applyDocumentResult(current, result);
+  }
+
+  Future<void> exportDocument(String documentId, String destinationPath) async {
+    final current = state;
+    if (!current.isUnlocked) return;
+    await _documents.exportDocument(
+      current: current,
+      documentId: documentId,
+      destinationPath: destinationPath,
+    );
+    _notifyDocumentsUnchanged(current);
   }
 
   void clear() {
@@ -493,6 +488,8 @@ class VaultNotifier extends StateNotifier<VaultState> {
       data: null,
       key: null,
       fileName: null,
+      format: VaultContainerFormat.v3,
+      headerBytes: null,
     );
   }
 }
@@ -501,5 +498,6 @@ final vaultProvider = StateNotifierProvider<VaultNotifier, VaultState>((ref) {
   return VaultNotifier(
     ref.read(vaultRepositoryProvider),
     ref.read(preferencesServiceProvider),
+    ref.read(vaultDocumentServiceProvider),
   );
 });

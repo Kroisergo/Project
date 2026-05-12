@@ -17,7 +17,6 @@ import 'package:encryvault/services/security/screen_protection_controller.dart';
 import 'package:encryvault/services/security/screen_protection_service.dart';
 import 'package:encryvault/services/storage/preferences_service.dart';
 import 'package:encryvault/services/vault/trash_retention_policy.dart';
-import 'package:encryvault/services/vault/vault_data_migrator.dart';
 import 'package:encryvault/services/vault/vault_sort_controller.dart';
 import 'package:encryvault/utils/constants.dart';
 
@@ -154,12 +153,12 @@ void main() {
     });
   });
 
-  group('VaultDataMigrator', () {
-    test('fills missing version and entry fields without crashing', () {
-      final migrated = VaultDataMigrator.migrate({
+  group('VaultData JSON fallbacks', () {
+    test('fills missing version and optional entry fields', () {
+      final data = VaultData.fromJson(<String, dynamic>{
         'updatedAt': '2026-01-02T00:00:00.000Z',
-        'entries': [
-          {
+        'entries': <Map<String, dynamic>>[
+          <String, dynamic>{
             'id': '1',
             'title': 'Email',
             'password': 'secret',
@@ -167,8 +166,6 @@ void main() {
           },
         ],
       });
-
-      final data = VaultData.fromJson(migrated);
 
       expect(data.version, VaultConstants.currentDataVersion);
       expect(data.entries, hasLength(1));
@@ -182,49 +179,48 @@ void main() {
       expect(data.entries.single.isFavorite, isFalse);
     });
 
-    test(
-      'removes old current-password marker while preserving old history',
-      () {
-        final migrated = VaultDataMigrator.migrate({
-          'version': 1,
-          'updatedAt': '2026-01-03T00:00:00.000Z',
-          'entries': [
-            {
-              'id': '1',
-              'title': 'Email',
-              'username': 'user',
-              'password': 'current',
-              'notes': '',
-              'tags': ['mail'],
-              'createdAt': '2026-01-01T00:00:00.000Z',
-              'updatedAt': '2026-01-03T00:00:00.000Z',
-              'passwordHistory': [
-                {'password': 'old', 'changedAt': '2026-01-02T00:00:00.000Z'},
-                {
-                  'password': 'current',
-                  'changedAt': '2026-01-03T00:00:00.000Z',
-                },
-              ],
-            },
-          ],
-        });
+    test('removes current-password marker while preserving history', () {
+      final data = VaultData.fromJson(<String, dynamic>{
+        'version': VaultConstants.currentDataVersion,
+        'updatedAt': '2026-01-03T00:00:00.000Z',
+        'entries': <Map<String, dynamic>>[
+          <String, dynamic>{
+            'id': '1',
+            'title': 'Email',
+            'username': 'user',
+            'password': 'current',
+            'notes': '',
+            'tags': ['mail'],
+            'createdAt': '2026-01-01T00:00:00.000Z',
+            'updatedAt': '2026-01-03T00:00:00.000Z',
+            'passwordHistory': <Map<String, dynamic>>[
+              <String, dynamic>{
+                'password': 'old',
+                'changedAt': '2026-01-02T00:00:00.000Z',
+              },
+              <String, dynamic>{
+                'password': 'current',
+                'changedAt': '2026-01-03T00:00:00.000Z',
+              },
+            ],
+          },
+        ],
+      });
 
-        final data = VaultData.fromJson(migrated);
-        final history = data.entries.single.passwordHistory;
+      final history = data.entries.single.passwordHistory;
 
-        expect(data.version, VaultConstants.currentDataVersion);
-        expect(history, hasLength(1));
-        expect(history.single.password, 'old');
-        expect(history.single.changedAt, DateTime.utc(2026, 1, 2));
-      },
-    );
+      expect(data.version, VaultConstants.currentDataVersion);
+      expect(history, hasLength(1));
+      expect(history.single.password, 'old');
+      expect(history.single.changedAt, DateTime.utc(2026, 1, 2));
+    });
 
-    test('accepts absent entries list', () {
-      final migrated = VaultDataMigrator.migrate({});
-      final data = VaultData.fromJson(migrated);
+    test('accepts absent entries and documents lists', () {
+      final data = VaultData.fromJson(<String, dynamic>{});
 
       expect(data.version, VaultConstants.currentDataVersion);
       expect(data.entries, isEmpty);
+      expect(data.documents, isEmpty);
     });
   });
 

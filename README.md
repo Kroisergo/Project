@@ -1,4 +1,4 @@
-# EncryVault 2.0
+# EncryVault 3
 
 EncryVault e um gestor de palavras-passe e segredos 100% offline feito em Flutter.
 O cofre e guardado num ficheiro local `.vltx`, cifrado com Argon2id e
@@ -21,6 +21,8 @@ externa.
 - Recomendacao de mudanca com base na forca da palavra-passe.
 - Dashboard de saude das palavras-passe.
 - Alertas para palavras-passe fracas, reutilizadas ou antigas.
+- Documentos sigilosos guardados no cofre por chunks cifrados.
+- Limites de documentos: 100 MB por documento e 500 MB no total.
 - Auto-lock configuravel, incluindo opcao Nunca.
 - Bloqueio por inatividade e por eventos de ciclo de vida da app.
 - Exportacao e importacao local do cofre.
@@ -42,14 +44,15 @@ flutter run
 3. Criacao define a palavra-passe mestra e cria um cofre vazio cifrado.
 4. Unlock deriva a chave e valida/desencripta o cofre.
 5. Home mostra entradas ativas, pesquisa, filtros, ordenacao e alertas.
-6. Configuracoes agrupam dados/backup, saude, lixo, sessao e aparencia.
+6. Documentos sigilosos permite adicionar, exportar e eliminar documentos.
+7. Configuracoes agrupam dados/backup, saude, lixo, sessao e aparencia.
 
 ## Seguranca
 
 - KDF: Argon2id via libsodium.
 - Cipher: XChaCha20-Poly1305 AEAD.
-- Header usado como AAD para autenticar parametros do ficheiro.
-- Nonce aleatorio novo a cada gravacao.
+- Header, footer, manifest e metadados de chunk usados como AAD.
+- Nonces unicos por manifest e por chunk de documento.
 - Escrita com ficheiro temporario, flush e rename.
 - Chave derivada mantida apenas em memoria enquanto o cofre esta desbloqueado.
 - Chave descartada no lock/logout.
@@ -101,7 +104,7 @@ Cada entrada guarda historico de palavras-passe dentro do proprio cofre cifrado.
 - Ao criar uma entrada, e guardada a palavra-passe inicial.
 - Ao editar uma entrada, se a palavra-passe mudar, e adicionado um novo item ao
   historico.
-- Cofres antigos sem historico recebem fallback com a palavra-passe atual.
+- Entradas sem historico recebem fallback seguro ao serem lidas.
 - O historico nao e guardado em SharedPreferences, logs ou ficheiros auxiliares.
 
 ## Lixo
@@ -138,11 +141,14 @@ Quando o cofre bloqueia, o estado em memoria e limpo e a chave e descartada.
 Estrutura:
 
 1. 4 bytes big-endian com o tamanho do header.
-2. Header JSON em claro com magic, versao, cipher, KDF, salt e nonce.
-3. Payload JSON cifrado e autenticado com XChaCha20-Poly1305.
+2. Header JSON em claro com magic, versao 3, container, cipher, KDF, salt,
+   vaultId e tamanho de chunk predefinido.
+3. Chunks de documentos cifrados com XChaCha20-Poly1305.
+4. Manifest cifrado com metadados das entradas, documentos e lista de chunks.
+5. Footer fixo de 64 bytes com offsets, tamanhos, nonce do manifest e flags.
 
-O payload contem as entradas, entradas no Lixo, historico de palavras-passe e
-metadados do cofre.
+O manifest contem apenas metadados e referencias aos chunks; o conteudo dos
+documentos fica nos chunks cifrados.
 
 ## Dependencias principais
 
@@ -162,7 +168,7 @@ O projeto inclui testes para:
 
 - policy da palavra-passe mestra
 - gerador de palavras-passe
-- compatibilidade com JSON antigo
+- fallbacks de parsing JSON do manifest
 - Lixo e separacao entre entradas ativas/eliminadas
 - visibilidade de filtros
 - recomendacao de mudanca
@@ -170,7 +176,8 @@ O projeto inclui testes para:
 - feedback textual
 - cifra/decifra
 - deteccao de tampering
-- rotacao de nonce
+- integridade do footer, manifest e chunks
+- documentos por chunks, limites, exportacao e eliminacao
 - smoke test da app
 
 ## Testes manuais recomendados
@@ -182,6 +189,7 @@ O projeto inclui testes para:
 - Editar palavra-passe e confirmar historico.
 - Apagar entrada, restaurar do Lixo e eliminar definitivamente.
 - Confirmar que filtros so aparecem com entradas ativas.
+- Adicionar, exportar e eliminar um documento sigiloso.
 - Exportar e importar cofre local.
 - Corromper um byte do `.vltx` e confirmar falha segura.
 - Confirmar bloqueio por inatividade e ao mandar a app para background.

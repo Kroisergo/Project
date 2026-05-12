@@ -2,10 +2,14 @@ class VaultConstants {
   static const defaultVaultName = 'vault.vltx';
   static const vaultExtension = '.vltx';
   static const magic = 'EVLT';
-  static const formatVersion = 1;
-  static const currentDataVersion = 2;
+  static const v3FormatVersion = 3;
+  static const formatVersion = v3FormatVersion;
+  static const currentDataVersion = v3DataVersion;
+  static const v3DataVersion = 3;
   static const cipherId = 'xchacha20poly1305-ietf';
   static const kdfId = 'argon2id';
+  static const v3ContainerId = 'binary-chunked';
+  static const v3SubkeyKdfId = 'libsodium-crypto-kdf-blake2b';
   static const ignoredAlertNoExpiryValue = -1;
 }
 

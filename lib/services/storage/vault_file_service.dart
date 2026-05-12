@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
+import '../../models/vault_footer_v3.dart';
 import '../../utils/constants.dart';
 
 class VaultFileService {
@@ -65,6 +66,18 @@ class VaultFileService {
     await raf.flush();
     await raf.close();
 
+    await replaceVaultWithTemp(target: target, tmp: tmp);
+    return target;
+  }
+
+  Future<File> createTempVaultFile(File target) async {
+    return File('${target.path}.${DateTime.now().microsecondsSinceEpoch}.tmp');
+  }
+
+  Future<void> replaceVaultWithTemp({
+    required File target,
+    required File tmp,
+  }) async {
     File? backup;
     try {
       if (await target.exists()) {
@@ -79,7 +92,7 @@ class VaultFileService {
       if (backup != null && await backup.exists()) {
         await backup.delete();
       }
-    } catch (e) {
+    } catch (_) {
       if (backup != null && await backup.exists()) {
         await backup.rename(target.path);
       }
@@ -89,7 +102,6 @@ class VaultFileService {
         await tmp.delete();
       }
     }
-    return target;
   }
 
   Future<void> exportVaultTo(String destinationPath, {String? fileName}) async {
@@ -99,7 +111,7 @@ class VaultFileService {
     }
     final destFile = File(destinationPath);
     await destFile.parent.create(recursive: true);
-    await destFile.writeAsBytes(await source.readAsBytes(), flush: true);
+    await source.openRead().pipe(destFile.openWrite());
   }
 
   Future<void> importVaultFrom(
@@ -116,7 +128,7 @@ class VaultFileService {
     }
     final target = await vaultFileForName(targetFileName);
     await _tryCreateAutomaticBackup(target);
-    await target.writeAsBytes(await source.readAsBytes(), flush: true);
+    await source.openRead().pipe(target.openWrite());
   }
 
   Future<void> _tryCreateAutomaticBackup(File target) async {
@@ -132,7 +144,7 @@ class VaultFileService {
           '${baseName}_$timestamp${VaultConstants.vaultExtension}',
         ),
       );
-      await backup.writeAsBytes(await target.readAsBytes(), flush: true);
+      await target.openRead().pipe(backup.openWrite());
       await _pruneAutomaticBackups(dir, baseName);
     } catch (_) {
       // Backups are best-effort and must not block saving the encrypted vault.
@@ -214,7 +226,6 @@ class VaultFileService {
       final decoded = jsonDecode(utf8.decode(headerBytes));
       if (decoded is! Map ||
           decoded['magic'] != VaultConstants.magic ||
-          decoded['formatVersion'] != VaultConstants.formatVersion ||
           decoded['cipherId'] != VaultConstants.cipherId ||
           decoded['kdf'] != VaultConstants.kdfId) {
         throw Exception('Ficheiro de cofre inválido ou corrompido.');
@@ -223,6 +234,7 @@ class VaultFileService {
       if (remaining <= 0) {
         throw Exception('Ficheiro de cofre inválido ou corrompido.');
       }
+      final version = decoded['formatVersion'];
       if (decoded['memLimit'] is! int ||
           decoded['opsLimit'] is! int ||
           decoded['parallelism'] is! int ||
@@ -232,13 +244,24 @@ class VaultFileService {
         throw Exception('Ficheiro de cofre inválido ou corrompido.');
       }
       final salt = decoded['salt'];
-      final nonce = decoded['nonce'];
-      if (salt is! String || nonce is! String) {
+      if (salt is! String) {
         throw Exception('Ficheiro de cofre inválido ou corrompido.');
       }
-      if (base64Decode(salt).isEmpty || base64Decode(nonce).isEmpty) {
+      if (base64Decode(salt).isEmpty) {
         throw Exception('Ficheiro de cofre inválido ou corrompido.');
       }
+      if (version != VaultConstants.v3FormatVersion) {
+        throw Exception('Ficheiro de cofre inválido ou corrompido.');
+      }
+      if (decoded['container'] != VaultConstants.v3ContainerId ||
+          decoded['subkeyKdf'] != VaultConstants.v3SubkeyKdfId ||
+          decoded['vaultId'] is! String ||
+          remaining <= VaultFooterV3.length) {
+        throw Exception('Ficheiro de cofre inválido ou corrompido.');
+      }
+      await raf.setPosition(totalLen - VaultFooterV3.length);
+      final footerBytes = await raf.read(VaultFooterV3.length);
+      VaultFooterV3.fromBytes(Uint8List.fromList(footerBytes));
       return _VaultFileStructure(
         header: Map<String, dynamic>.from(decoded),
         payloadBytes: remaining,

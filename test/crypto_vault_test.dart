@@ -13,6 +13,11 @@ import 'package:encryvault/services/crypto/crypto_service.dart';
 import 'package:encryvault/services/crypto/sodium_provider.dart';
 import 'package:encryvault/services/security/trash_pin_service.dart';
 import 'package:encryvault/services/storage/vault_file_service.dart';
+import 'package:encryvault/services/vault/vault_document_limits.dart';
+import 'package:encryvault/services/vault/vault_document_service.dart';
+import 'package:encryvault/models/vault_container_format.dart';
+import 'package:encryvault/models/vault_footer_v3.dart';
+import 'package:encryvault/models/vault_header.dart';
 import 'package:encryvault/services/vault/vault_repository.dart';
 import 'package:encryvault/services/vault/vault_service.dart';
 import 'package:encryvault/utils/constants.dart';
@@ -284,7 +289,7 @@ void main() {
     );
   });
 
-  test('Nonce rotates on save', () async {
+  test('Saving a v3 vault rewrites encrypted content', () async {
     if (!sodiumReady) return;
     final tempDir = await Directory.systemTemp.createTemp('vault_test3');
     final fileService = VaultFileService(baseDir: tempDir);
@@ -312,17 +317,28 @@ void main() {
     await vs.createVault(masterPassword: master);
     final repo = container.read(vaultRepositoryProvider);
     final initial = await repo.loadAndDecrypt(masterPassword: master);
-    final initialNonce = initial.header.nonceB64;
+    expect(initial.format, VaultContainerFormat.v3);
 
     container
         .read(vaultProvider.notifier)
-        .setVault(initial.header, initial.data, initial.key);
+        .setVault(
+          initial.header,
+          initial.data,
+          initial.key,
+          fileName: initial.fileName,
+          format: initial.format,
+          headerBytes: initial.headerBytes,
+        );
+    final file = await fileService.defaultVaultFile();
+    final beforeBytes = await file.readAsBytes();
     await container
         .read(vaultProvider.notifier)
         .addEntry(title: 't', username: 'u', password: 'p', notes: '');
     final after = await repo.loadAndDecrypt(masterPassword: master);
 
-    expect(after.header.nonceB64 == initialNonce, isFalse);
+    expect(after.format, VaultContainerFormat.v3);
+    expect(await file.readAsBytes(), isNot(beforeBytes));
+    after.key.dispose();
   });
 
   test('Entry password history follows global preference', () async {
@@ -491,13 +507,11 @@ void main() {
     final reopened = await repo.loadAndDecrypt(masterPassword: newMaster);
 
     expect(afterState.header!.magic, VaultConstants.magic);
-    expect(afterState.header!.formatVersion, VaultConstants.formatVersion);
+    expect(afterState.header!.formatVersion, VaultConstants.v3FormatVersion);
     expect(afterState.header!.saltB64, isNot(beforeHeader.saltB64));
-    expect(afterState.header!.nonceB64, isNot(beforeHeader.nonceB64));
     expect(reopened.header.magic, VaultConstants.magic);
-    expect(reopened.header.formatVersion, VaultConstants.formatVersion);
+    expect(reopened.header.formatVersion, VaultConstants.v3FormatVersion);
     expect(reopened.header.saltB64, afterState.header!.saltB64);
-    expect(reopened.header.nonceB64, afterState.header!.nonceB64);
     expect(reopened.data.version, beforeData.version);
     expect(reopened.data.entries, hasLength(1));
     expect(reopened.data.entries.single.id, beforeData.entries.single.id);
@@ -566,10 +580,6 @@ void main() {
 
     expect(await file.readAsBytes(), beforeBytes);
     expect(container.read(vaultProvider).header!.saltB64, beforeHeader.saltB64);
-    expect(
-      container.read(vaultProvider).header!.nonceB64,
-      beforeHeader.nonceB64,
-    );
     final reopened = await repo.loadAndDecrypt(masterPassword: oldMaster);
     expect(reopened.data.entries.single.title, 'Email');
     reopened.key.dispose();
@@ -672,6 +682,712 @@ void main() {
     },
   );
 
+  test('VaultDocumentService is exposed through a provider', () {
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+
+    expect(
+      container.read(vaultDocumentServiceProvider),
+      isA<VaultDocumentService>(),
+    );
+  });
+
+  test('VaultState starts and clears in the v3 format', () {
+    final container = ProviderContainer();
+    addTearDown(container.dispose);
+
+    expect(container.read(vaultProvider).format, VaultContainerFormat.v3);
+
+    container.read(vaultProvider.notifier).clear();
+
+    expect(container.read(vaultProvider).format, VaultContainerFormat.v3);
+  });
+
+  test('VaultDocumentLimits rejects total document limit overflow', () async {
+    final tempDir = await Directory.systemTemp.createTemp(
+      'vault_doc_limit_test',
+    );
+    final file = File('${tempDir.path}/tiny.txt');
+    await file.writeAsBytes([1, 2, 3], flush: true);
+
+    await expectLater(
+      VaultDocumentLimits.validateFile(
+        file: file,
+        currentTotalBytes: VaultDocumentLimits.maxTotalDocumentBytes,
+      ),
+      throwsA(isA<VaultDocumentLimitException>()),
+    );
+  });
+
+  test('createVault creates canonical v3 vault', () async {
+    if (!sodiumReady) return;
+    final tempDir = await Directory.systemTemp.createTemp(
+      'vault_create_v3_test',
+    );
+    final fileService = VaultFileService(baseDir: tempDir);
+    final container = ProviderContainer(
+      overrides: [
+        sodiumProvider.overrideWith((ref) async => sodium),
+        vaultServiceProvider.overrideWith(
+          (ref) => VaultService(
+            ref: ref,
+            cryptoService: CryptoService(),
+            vaultFileService: fileService,
+          ),
+        ),
+        vaultRepositoryProvider.overrideWith(
+          (ref) => VaultRepository(
+            ref: ref,
+            cryptoService: CryptoService(),
+            fileService: fileService,
+          ),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    const master = 'DocumentStrongPassword12!';
+    await container
+        .read(vaultServiceProvider)
+        .createVault(masterPassword: master);
+    final opened = await container
+        .read(vaultRepositoryProvider)
+        .loadAndDecrypt(masterPassword: master);
+
+    expect(opened.format, VaultContainerFormat.v3);
+    expect(opened.header.formatVersion, VaultConstants.v3FormatVersion);
+    expect(opened.data.version, VaultConstants.v3DataVersion);
+    expect(opened.data.documents, isEmpty);
+    opened.key.dispose();
+  });
+
+  test(
+    'unsupported non-v3 vaults are rejected without rewriting file',
+    () async {
+      final tempDir = await Directory.systemTemp.createTemp(
+        'vault_unsupported_rejected_test',
+      );
+      final fileService = VaultFileService(baseDir: tempDir);
+      const master = 'UnsupportedStrongPassword12!';
+      await _writeUnsupportedNonV3Vault(fileService: fileService);
+      final vaultFile = await fileService.defaultVaultFile();
+      final beforeBytes = await vaultFile.readAsBytes();
+      final container = ProviderContainer(
+        overrides: [
+          vaultRepositoryProvider.overrideWith(
+            (ref) => VaultRepository(
+              ref: ref,
+              cryptoService: CryptoService(),
+              fileService: fileService,
+            ),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      await expectLater(
+        container
+            .read(vaultRepositoryProvider)
+            .loadAndDecrypt(masterPassword: master),
+        throwsA(isA<VaultLoadException>()),
+      );
+      expect(await vaultFile.readAsBytes(), beforeBytes);
+    },
+  );
+
+  test('Backup validation rejects unsupported non-v3 vault files', () async {
+    final tempDir = await Directory.systemTemp.createTemp(
+      'vault_unsupported_backup_rejected_test',
+    );
+    final fileService = VaultFileService(baseDir: tempDir);
+    await _writeUnsupportedNonV3Vault(fileService: fileService);
+
+    final vaultFile = await fileService.defaultVaultFile();
+    final validation = await fileService.validateVaultFileStructure(
+      vaultFile.path,
+    );
+
+    expect(validation.isValid, isFalse);
+  });
+
+  test('Unknown vault format fails with a clear PT-PT message', () async {
+    final tempDir = await Directory.systemTemp.createTemp(
+      'vault_unknown_format_test',
+    );
+    final fileService = VaultFileService(baseDir: tempDir);
+    final container = ProviderContainer(
+      overrides: [
+        vaultRepositoryProvider.overrideWith(
+          (ref) => VaultRepository(
+            ref: ref,
+            cryptoService: CryptoService(),
+            fileService: fileService,
+          ),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    final header = VaultHeader(
+      magic: VaultConstants.magic,
+      formatVersion: 99,
+      cipherId: VaultConstants.cipherId,
+      kdf: VaultConstants.kdfId,
+      memLimit: 1,
+      opsLimit: 1,
+      parallelism: 1,
+      saltB64: base64Encode([1, 2, 3, 4]),
+    );
+    final headerBytes = Uint8List.fromList(
+      utf8.encode(jsonEncode(header.toJson())),
+    );
+    await fileService.writeVault(
+      target: await fileService.defaultVaultFile(),
+      headerBytes: headerBytes,
+      cipherBytes: Uint8List.fromList([1, 2, 3]),
+    );
+
+    await expectLater(
+      container
+          .read(vaultRepositoryProvider)
+          .loadAndDecrypt(masterPassword: 'qualquer-palavra-passe'),
+      throwsA(
+        isA<VaultLoadException>().having(
+          (error) => error.message,
+          'message',
+          'Cofre corrompido ou versão não suportada.',
+        ),
+      ),
+    );
+  });
+
+  test('Vault v3 footer uses fixed 64 byte encoding', () {
+    final nonce = Uint8List.fromList(List<int>.generate(24, (index) => index));
+    final footer = VaultFooterV3(
+      manifestOffset: 123,
+      manifestEncryptedSize: 456,
+      manifestPlainSize: 440,
+      manifestNonce: nonce,
+    );
+
+    final encoded = footer.toBytes();
+    final parsed = VaultFooterV3.fromBytes(encoded);
+
+    expect(encoded, hasLength(VaultFooterV3.length));
+    expect(parsed.manifestOffset, footer.manifestOffset);
+    expect(parsed.manifestEncryptedSize, footer.manifestEncryptedSize);
+    expect(parsed.manifestPlainSize, footer.manifestPlainSize);
+    expect(parsed.manifestNonce, footer.manifestNonce);
+  });
+
+  test('Vault v3 rejects oversized document without rewriting vault', () async {
+    if (!sodiumReady) return;
+    final tempDir = await Directory.systemTemp.createTemp(
+      'vault_v3_doc_oversized_test',
+    );
+    final fileService = VaultFileService(baseDir: tempDir);
+    final container = ProviderContainer(
+      overrides: [
+        sodiumProvider.overrideWith((ref) async => sodium),
+        vaultServiceProvider.overrideWith(
+          (ref) => VaultService(
+            ref: ref,
+            cryptoService: CryptoService(),
+            vaultFileService: fileService,
+          ),
+        ),
+        vaultRepositoryProvider.overrideWith(
+          (ref) => VaultRepository(
+            ref: ref,
+            cryptoService: CryptoService(),
+            fileService: fileService,
+          ),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    const master = 'DocumentStrongPassword12!';
+    await container
+        .read(vaultServiceProvider)
+        .createVault(masterPassword: master);
+    final repo = container.read(vaultRepositoryProvider);
+    final initial = await repo.loadAndDecrypt(masterPassword: master);
+    container
+        .read(vaultProvider.notifier)
+        .setVault(
+          initial.header,
+          initial.data,
+          initial.key,
+          fileName: initial.fileName,
+          format: initial.format,
+          headerBytes: initial.headerBytes,
+        );
+
+    final vaultFile = await fileService.defaultVaultFile();
+    final beforeBytes = await vaultFile.readAsBytes();
+    final oversized = File('${tempDir.path}/too-large.bin');
+    final raf = await oversized.open(mode: FileMode.write);
+    await raf.truncate(VaultDocumentLimits.maxDocumentBytes + 1);
+    await raf.close();
+
+    await expectLater(
+      container
+          .read(vaultProvider.notifier)
+          .addDocumentFromFile(oversized.path),
+      throwsA(
+        isA<VaultDocumentLimitException>().having(
+          (error) => error.message,
+          'message',
+          'Ficheiro demasiado grande.',
+        ),
+      ),
+    );
+
+    expect(container.read(vaultProvider).format, VaultContainerFormat.v3);
+    expect(await vaultFile.readAsBytes(), beforeBytes);
+  });
+
+  test(
+    'Adding a document to a v3 vault updates state and persists metadata',
+    () async {
+      if (!sodiumReady) return;
+      final tempDir = await Directory.systemTemp.createTemp(
+        'vault_v3_add_document_updates_state_test',
+      );
+      final fileService = VaultFileService(baseDir: tempDir);
+      final container = ProviderContainer(
+        overrides: [
+          sodiumProvider.overrideWith((ref) async => sodium),
+          vaultServiceProvider.overrideWith(
+            (ref) => VaultService(
+              ref: ref,
+              cryptoService: CryptoService(),
+              vaultFileService: fileService,
+            ),
+          ),
+          vaultRepositoryProvider.overrideWith(
+            (ref) => VaultRepository(
+              ref: ref,
+              cryptoService: CryptoService(),
+              fileService: fileService,
+            ),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      const master = 'DocumentStrongPassword12!';
+      await container
+          .read(vaultServiceProvider)
+          .createVault(masterPassword: master);
+      final repo = container.read(vaultRepositoryProvider);
+      final initial = await repo.loadAndDecrypt(masterPassword: master);
+      container
+          .read(vaultProvider.notifier)
+          .setVault(
+            initial.header,
+            initial.data,
+            initial.key,
+            fileName: initial.fileName,
+            format: initial.format,
+            headerBytes: initial.headerBytes,
+          );
+      final documentCounts = <int>[];
+      final subscription = container.listen<VaultState>(
+        vaultProvider,
+        (_, next) => documentCounts.add(next.data?.documents.length ?? 0),
+        fireImmediately: true,
+      );
+      addTearDown(subscription.close);
+      final entryId = await container
+          .read(vaultProvider.notifier)
+          .addEntry(
+            title: 'Banco',
+            username: 'cliente',
+            password: 'EntryPassword12!',
+            notes: 'nota',
+          );
+
+      final source = File('${tempDir.path}/contrato.pdf');
+      await source.writeAsBytes([1, 2, 3, 4, 5], flush: true);
+
+      final documentId = await container
+          .read(vaultProvider.notifier)
+          .addDocumentFromFile(source.path);
+      final stateAfterAdd = container.read(vaultProvider);
+
+      expect(stateAfterAdd.format, VaultContainerFormat.v3);
+      expect(
+        stateAfterAdd.header!.formatVersion,
+        VaultConstants.v3FormatVersion,
+      );
+      expect(stateAfterAdd.data!.entries, hasLength(1));
+      expect(stateAfterAdd.data!.entries.single.id, entryId);
+      expect(stateAfterAdd.data!.entries.single.title, 'Banco');
+      expect(stateAfterAdd.data!.documents, hasLength(1));
+      expect(stateAfterAdd.data!.documents.single.id, documentId);
+      expect(documentCounts, contains(1));
+
+      final reopened = await repo.loadAndDecrypt(masterPassword: master);
+      expect(reopened.format, VaultContainerFormat.v3);
+      expect(reopened.data.entries.single.id, entryId);
+      expect(reopened.data.entries.single.title, 'Banco');
+      expect(reopened.data.documents.single.fileName, 'contrato.pdf');
+      reopened.key.dispose();
+    },
+  );
+
+  test('Vault v3 stores and exports documents by chunks', () async {
+    if (!sodiumReady) return;
+    final tempDir = await Directory.systemTemp.createTemp('vault_v3_doc_test');
+    final fileService = VaultFileService(baseDir: tempDir);
+    final container = ProviderContainer(
+      overrides: [
+        sodiumProvider.overrideWith((ref) async => sodium),
+        vaultServiceProvider.overrideWith(
+          (ref) => VaultService(
+            ref: ref,
+            cryptoService: CryptoService(),
+            vaultFileService: fileService,
+          ),
+        ),
+        vaultRepositoryProvider.overrideWith(
+          (ref) => VaultRepository(
+            ref: ref,
+            cryptoService: CryptoService(),
+            fileService: fileService,
+          ),
+        ),
+      ],
+    );
+    const master = 'DocumentStrongPassword12!';
+    await container
+        .read(vaultServiceProvider)
+        .createVault(masterPassword: master);
+    final repo = container.read(vaultRepositoryProvider);
+    final initial = await repo.loadAndDecrypt(masterPassword: master);
+    container
+        .read(vaultProvider.notifier)
+        .setVault(
+          initial.header,
+          initial.data,
+          initial.key,
+          fileName: initial.fileName,
+          format: initial.format,
+        );
+
+    final plain = Uint8List.fromList(
+      List<int>.generate(
+        VaultDocumentLimits.defaultChunkSize + 73,
+        (index) => index % 251,
+      ),
+    );
+    final source = File('${tempDir.path}/contrato.pdf');
+    await source.writeAsBytes(plain, flush: true);
+
+    final documentId = await container
+        .read(vaultProvider.notifier)
+        .addDocumentFromFile(source.path);
+    final afterAdd = container.read(vaultProvider);
+
+    expect(afterAdd.header!.formatVersion, VaultConstants.v3FormatVersion);
+    expect(afterAdd.format, VaultContainerFormat.v3);
+    expect(afterAdd.data!.documents, hasLength(1));
+    expect(afterAdd.data!.documents.single.id, documentId);
+    expect(afterAdd.data!.documents.single.chunks.length, greaterThan(1));
+
+    await container
+        .read(vaultProvider.notifier)
+        .addEntry(
+          title: 'Banco',
+          username: 'cliente',
+          password: 'EntryPassword12!',
+          notes: 'nota',
+        );
+    expect(container.read(vaultProvider).data!.documents, hasLength(1));
+
+    final exported = File('${tempDir.path}/exported.pdf');
+    await container
+        .read(vaultProvider.notifier)
+        .exportDocument(documentId, exported.path);
+    expect(await exported.readAsBytes(), plain);
+
+    final reopened = await repo.loadAndDecrypt(masterPassword: master);
+    expect(reopened.format, VaultContainerFormat.v3);
+    expect(reopened.data.documents.single.fileName, 'contrato.pdf');
+    expect(reopened.data.documents.single.sizeBytes, plain.length);
+    reopened.key.dispose();
+
+    await expectLater(
+      repo.loadAndDecrypt(masterPassword: 'password-errada'),
+      throwsA(isA<VaultAuthException>()),
+    );
+
+    await container.read(vaultProvider.notifier).deleteDocument(documentId);
+    final afterDelete = container.read(vaultProvider);
+    expect(afterDelete.data!.documents, isEmpty);
+    final reopenedAfterDelete = await repo.loadAndDecrypt(
+      masterPassword: master,
+    );
+    expect(reopenedAfterDelete.format, VaultContainerFormat.v3);
+    expect(reopenedAfterDelete.data.documents, isEmpty);
+    reopenedAfterDelete.key.dispose();
+  });
+
+  test('Vault v3 detects tampered document chunks during export', () async {
+    if (!sodiumReady) return;
+    final tempDir = await Directory.systemTemp.createTemp(
+      'vault_v3_doc_tamper_test',
+    );
+    final fileService = VaultFileService(baseDir: tempDir);
+    final container = ProviderContainer(
+      overrides: [
+        sodiumProvider.overrideWith((ref) async => sodium),
+        vaultServiceProvider.overrideWith(
+          (ref) => VaultService(
+            ref: ref,
+            cryptoService: CryptoService(),
+            vaultFileService: fileService,
+          ),
+        ),
+        vaultRepositoryProvider.overrideWith(
+          (ref) => VaultRepository(
+            ref: ref,
+            cryptoService: CryptoService(),
+            fileService: fileService,
+          ),
+        ),
+      ],
+    );
+    const master = 'DocumentStrongPassword12!';
+    await container
+        .read(vaultServiceProvider)
+        .createVault(masterPassword: master);
+    final repo = container.read(vaultRepositoryProvider);
+    final initial = await repo.loadAndDecrypt(masterPassword: master);
+    container
+        .read(vaultProvider.notifier)
+        .setVault(
+          initial.header,
+          initial.data,
+          initial.key,
+          fileName: initial.fileName,
+          format: initial.format,
+        );
+
+    final source = File('${tempDir.path}/segredo.bin');
+    await source.writeAsBytes(
+      Uint8List.fromList(List<int>.generate(4096, (index) => index % 199)),
+      flush: true,
+    );
+    final documentId = await container
+        .read(vaultProvider.notifier)
+        .addDocumentFromFile(source.path);
+    final document = container.read(vaultProvider).data!.documents.single;
+    final vaultFile = await fileService.defaultVaultFile();
+    final vaultBytes = await vaultFile.readAsBytes();
+    vaultBytes[document.chunks.single.offset] =
+        vaultBytes[document.chunks.single.offset] ^ 0xFF;
+    await vaultFile.writeAsBytes(vaultBytes, flush: true);
+
+    await expectLater(
+      container
+          .read(vaultProvider.notifier)
+          .exportDocument(documentId, '${tempDir.path}/tampered-export.bin'),
+      throwsA(isA<VaultAuthException>()),
+    );
+  });
+
+  test('Vault v3 detects tampered encrypted manifest during open', () async {
+    if (!sodiumReady) return;
+    final fixture = await _createUnlockedVaultFixture(
+      sodium,
+      tempPrefix: 'vault_v3_manifest_tamper_test',
+    );
+    await _addDocumentBytes(
+      fixture,
+      fileName: 'manifesto.pdf',
+      bytes: Uint8List.fromList(List<int>.generate(4096, (index) => index)),
+    );
+
+    final vaultFile = await fixture.fileService.defaultVaultFile();
+    final vaultBytes = await vaultFile.readAsBytes();
+    final footer = _footerFromVaultBytes(vaultBytes);
+    vaultBytes[footer.manifestOffset] =
+        vaultBytes[footer.manifestOffset] ^ 0xFF;
+    await vaultFile.writeAsBytes(vaultBytes, flush: true);
+
+    await expectLater(
+      fixture.repo.loadAndDecrypt(masterPassword: fixture.masterPassword),
+      throwsA(isA<VaultAuthException>()),
+    );
+  });
+
+  test('Vault v3 detects tampered footer during open', () async {
+    if (!sodiumReady) return;
+    final fixture = await _createUnlockedVaultFixture(
+      sodium,
+      tempPrefix: 'vault_v3_footer_tamper_test',
+    );
+    await _addDocumentBytes(
+      fixture,
+      fileName: 'footer.pdf',
+      bytes: Uint8List.fromList(List<int>.generate(4096, (index) => index)),
+    );
+
+    final vaultFile = await fixture.fileService.defaultVaultFile();
+    final vaultBytes = await vaultFile.readAsBytes();
+    vaultBytes[vaultBytes.length - 1] = vaultBytes.last ^ 0xFF;
+    await vaultFile.writeAsBytes(vaultBytes, flush: true);
+
+    await expectLater(
+      fixture.repo.loadAndDecrypt(masterPassword: fixture.masterPassword),
+      throwsA(isA<VaultAuthException>()),
+    );
+  });
+
+  test('Vault v3 rekey preserves and re-encrypts document chunks', () async {
+    if (!sodiumReady) return;
+    final fixture = await _createUnlockedVaultFixture(
+      sodium,
+      tempPrefix: 'vault_v3_rekey_documents_test',
+    );
+    final plain = Uint8List.fromList(
+      List<int>.generate(
+        VaultDocumentLimits.defaultChunkSize + 257,
+        (index) => index % 241,
+      ),
+    );
+    final documentId = await _addDocumentBytes(
+      fixture,
+      fileName: 'rekey.pdf',
+      bytes: plain,
+    );
+    final beforeState = fixture.container.read(vaultProvider);
+    final beforeChunkNonces = beforeState.data!.documents.single.chunks
+        .map((chunk) => chunk.nonceB64)
+        .toList();
+    final beforeVaultBytes =
+        await (await fixture.fileService.defaultVaultFile()).readAsBytes();
+
+    const nextMaster = 'NewDocumentStrongPassword34!';
+    await fixture.container
+        .read(vaultProvider.notifier)
+        .changeMasterPassword(
+          currentPassword: fixture.masterPassword,
+          newPassword: nextMaster,
+        );
+
+    await expectLater(
+      fixture.repo.loadAndDecrypt(masterPassword: fixture.masterPassword),
+      throwsA(isA<VaultAuthException>()),
+    );
+    final afterState = fixture.container.read(vaultProvider);
+    expect(afterState.format, VaultContainerFormat.v3);
+    final afterChunkNonces = afterState.data!.documents.single.chunks
+        .map((chunk) => chunk.nonceB64)
+        .toList();
+    expect(afterChunkNonces, isNot(beforeChunkNonces));
+    final afterVaultBytes = await (await fixture.fileService.defaultVaultFile())
+        .readAsBytes();
+    expect(_bytesEqual(afterVaultBytes, beforeVaultBytes), isFalse);
+
+    final exported = File('${fixture.tempDir.path}/rekey-export.pdf');
+    await fixture.container
+        .read(vaultProvider.notifier)
+        .exportDocument(documentId, exported.path);
+    expect(await exported.readAsBytes(), plain);
+
+    final reopened = await fixture.repo.loadAndDecrypt(
+      masterPassword: nextMaster,
+    );
+    expect(reopened.format, VaultContainerFormat.v3);
+    expect(reopened.data.documents.single.id, documentId);
+    reopened.key.dispose();
+  });
+
+  test('Vault v3 can store multiple chunked documents', () async {
+    if (!sodiumReady) return;
+    final fixture = await _createUnlockedVaultFixture(
+      sodium,
+      tempPrefix: 'vault_v3_multiple_documents_test',
+    );
+    final first = Uint8List.fromList(
+      List<int>.generate(
+        VaultDocumentLimits.defaultChunkSize + 11,
+        (index) => index % 211,
+      ),
+    );
+    final second = Uint8List.fromList(
+      List<int>.generate(
+        VaultDocumentLimits.defaultChunkSize + 29,
+        (index) => index % 197,
+      ),
+    );
+
+    final firstId = await _addDocumentBytes(
+      fixture,
+      fileName: 'primeiro.bin',
+      bytes: first,
+    );
+    final secondId = await _addDocumentBytes(
+      fixture,
+      fileName: 'segundo.bin',
+      bytes: second,
+    );
+
+    final documents = fixture.container.read(vaultProvider).data!.documents;
+    expect(documents, hasLength(2));
+    expect(
+      documents.map((document) => document.id),
+      containsAll([firstId, secondId]),
+    );
+    expect(
+      documents.every(
+        (document) =>
+            document.chunks.length > 1 &&
+            document.chunks.every(
+              (chunk) =>
+                  chunk.plainSize <= VaultDocumentLimits.defaultChunkSize,
+            ),
+      ),
+      isTrue,
+    );
+
+    final exported = File('${fixture.tempDir.path}/segundo-export.bin');
+    await fixture.container
+        .read(vaultProvider.notifier)
+        .exportDocument(secondId, exported.path);
+    expect(await exported.readAsBytes(), second);
+  });
+
+  test(
+    'Vault file replacement restores backup if temp promotion fails',
+    () async {
+      final tempDir = await Directory.systemTemp.createTemp(
+        'vault_replace_rollback_test',
+      );
+      final fileService = VaultFileService(baseDir: tempDir);
+      final target = await fileService.defaultVaultFile();
+      final originalBytes = Uint8List.fromList([7, 8, 9, 10]);
+      await target.writeAsBytes(originalBytes, flush: true);
+      final missingTmp = File('${target.path}.missing.tmp');
+      if (await missingTmp.exists()) {
+        await missingTmp.delete();
+      }
+
+      await expectLater(
+        fileService.replaceVaultWithTemp(target: target, tmp: missingTmp),
+        throwsA(isA<FileSystemException>()),
+      );
+
+      expect(await target.exists(), isTrue);
+      expect(await target.readAsBytes(), originalBytes);
+      expect(await File('${target.path}.bak').exists(), isFalse);
+    },
+  );
+
   test('Automatic local backups are created and pruned on overwrite', () async {
     final tempDir = await Directory.systemTemp.createTemp(
       'vault_auto_backup_test',
@@ -714,14 +1430,19 @@ class _FailingVaultFileService extends VaultFileService {
 
   bool failNextWrite = false;
 
+  bool _shouldFail() {
+    if (!failNextWrite) return false;
+    failNextWrite = false;
+    return true;
+  }
+
   @override
   Future<File> writeVault({
     required File target,
     required Uint8List headerBytes,
     required Uint8List cipherBytes,
   }) async {
-    if (failNextWrite) {
-      failNextWrite = false;
+    if (_shouldFail()) {
       throw Exception('simulated write failure');
     }
     return super.writeVault(
@@ -730,6 +1451,133 @@ class _FailingVaultFileService extends VaultFileService {
       cipherBytes: cipherBytes,
     );
   }
+
+  @override
+  Future<void> replaceVaultWithTemp({
+    required File target,
+    required File tmp,
+  }) async {
+    if (_shouldFail()) {
+      throw Exception('simulated write failure');
+    }
+    return super.replaceVaultWithTemp(target: target, tmp: tmp);
+  }
+}
+
+class _VaultDocumentFixture {
+  const _VaultDocumentFixture({
+    required this.tempDir,
+    required this.fileService,
+    required this.container,
+    required this.repo,
+    required this.masterPassword,
+  });
+
+  final Directory tempDir;
+  final VaultFileService fileService;
+  final ProviderContainer container;
+  final VaultRepository repo;
+  final String masterPassword;
+}
+
+Future<_VaultDocumentFixture> _createUnlockedVaultFixture(
+  SodiumSumo sodium, {
+  required String tempPrefix,
+  String masterPassword = 'DocumentStrongPassword12!',
+}) async {
+  final tempDir = await Directory.systemTemp.createTemp(tempPrefix);
+  final fileService = VaultFileService(baseDir: tempDir);
+  final container = ProviderContainer(
+    overrides: [
+      sodiumProvider.overrideWith((ref) async => sodium),
+      vaultServiceProvider.overrideWith(
+        (ref) => VaultService(
+          ref: ref,
+          cryptoService: CryptoService(),
+          vaultFileService: fileService,
+        ),
+      ),
+      vaultRepositoryProvider.overrideWith(
+        (ref) => VaultRepository(
+          ref: ref,
+          cryptoService: CryptoService(),
+          fileService: fileService,
+        ),
+      ),
+    ],
+  );
+  addTearDown(() {
+    container.read(vaultProvider.notifier).clear();
+    container.dispose();
+  });
+
+  await container
+      .read(vaultServiceProvider)
+      .createVault(masterPassword: masterPassword);
+  final repo = container.read(vaultRepositoryProvider);
+  final initial = await repo.loadAndDecrypt(masterPassword: masterPassword);
+  container
+      .read(vaultProvider.notifier)
+      .setVault(
+        initial.header,
+        initial.data,
+        initial.key,
+        fileName: initial.fileName,
+        format: initial.format,
+        headerBytes: initial.headerBytes,
+      );
+
+  return _VaultDocumentFixture(
+    tempDir: tempDir,
+    fileService: fileService,
+    container: container,
+    repo: repo,
+    masterPassword: masterPassword,
+  );
+}
+
+Future<String> _addDocumentBytes(
+  _VaultDocumentFixture fixture, {
+  required String fileName,
+  required List<int> bytes,
+}) async {
+  final source = File('${fixture.tempDir.path}/$fileName');
+  await source.writeAsBytes(bytes, flush: true);
+  return fixture.container
+      .read(vaultProvider.notifier)
+      .addDocumentFromFile(source.path);
+}
+
+VaultFooterV3 _footerFromVaultBytes(List<int> vaultBytes) {
+  return VaultFooterV3.fromBytes(
+    Uint8List.fromList(
+      vaultBytes.sublist(vaultBytes.length - VaultFooterV3.length),
+    ),
+  );
+}
+
+Future<void> _writeUnsupportedNonV3Vault({
+  required VaultFileService fileService,
+  int formatVersion = 99,
+}) async {
+  final header = VaultHeader(
+    magic: VaultConstants.magic,
+    formatVersion: formatVersion,
+    cipherId: VaultConstants.cipherId,
+    kdf: VaultConstants.kdfId,
+    memLimit: 1,
+    opsLimit: 1,
+    parallelism: 1,
+    saltB64: base64Encode([1, 2, 3, 4]),
+  );
+  final headerBytes = Uint8List.fromList(
+    utf8.encode(jsonEncode(header.toJson())),
+  );
+  await fileService.writeVault(
+    target: await fileService.defaultVaultFile(),
+    headerBytes: headerBytes,
+    cipherBytes: Uint8List.fromList([1, 2, 3]),
+  );
 }
 
 Future<List<File>> _automaticBackups(VaultFileService fileService) async {
@@ -741,4 +1589,12 @@ Future<List<File>> _automaticBackups(VaultFileService fileService) async {
   }
   backups.sort((a, b) => a.path.compareTo(b.path));
   return backups;
+}
+
+bool _bytesEqual(List<int> left, List<int> right) {
+  if (left.length != right.length) return false;
+  for (var index = 0; index < left.length; index += 1) {
+    if (left[index] != right[index]) return false;
+  }
+  return true;
 }

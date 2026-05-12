@@ -96,6 +96,8 @@ class _UnlockPageState extends ConsumerState<UnlockPage> {
         result.data,
         result.key,
         fileName: result.fileName ?? fileName,
+        format: result.format,
+        headerBytes: result.headerBytes,
       );
       if (!mounted) return;
       context.go(VaultHomePage.routePath);

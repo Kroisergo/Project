@@ -7,6 +7,7 @@ import '../pages/terms/terms_page.dart';
 import '../pages/unlock/unlock_page.dart';
 import '../pages/vault_entry_edit/vault_entry_edit_page.dart';
 import '../pages/vault_entry_view/vault_entry_view_page.dart';
+import '../pages/vault_documents/vault_documents_page.dart';
 import '../pages/vault_home/vault_home_page.dart';
 import '../pages/vault_settings/vault_settings_page.dart';
 import '../pages/vault_trash/vault_trash_page.dart';
@@ -79,6 +80,11 @@ final routerProvider = Provider<GoRouter>((ref) {
             path: VaultTrashPage.subPath,
             name: VaultTrashPage.routeName,
             builder: (context, state) => const VaultTrashPage(),
+          ),
+          GoRoute(
+            path: VaultDocumentsPage.subPath,
+            name: VaultDocumentsPage.routeName,
+            builder: (context, state) => const VaultDocumentsPage(),
           ),
         ],
       ),

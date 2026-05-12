@@ -16,11 +16,12 @@ class AutoLockController {
   Duration _timeout = const Duration(minutes: 2);
   bool _loaded = false;
   bool _disabled = false;
+  int _lifecycleLockSuspensions = 0;
 
   Future<void> restart() async {
     await _ensureTimeout();
     _lockTimer?.cancel();
-    if (_disabled) return;
+    if (_disabled || _lifecycleLockSuspended) return;
     _lockTimer = Timer(_timeout, _triggerLock);
   }
 
@@ -36,13 +37,33 @@ class AutoLockController {
 
   Future<void> handleLifecycle(AppLifecycleState state) async {
     await _ensureTimeout();
-    if (_disabled) return;
+    if (_disabled || _lifecycleLockSuspended) return;
     if (_isUnsafeLifecycleState(state)) {
       _triggerLock();
     } else if (state == AppLifecycleState.resumed) {
       await restart();
     }
   }
+
+  Future<T> runWithLifecycleLockSuspended<T>(
+    Future<T> Function() operation,
+  ) async {
+    await _ensureTimeout();
+    _lifecycleLockSuspensions += 1;
+    _lockTimer?.cancel();
+    _lockTimer = null;
+    try {
+      return await operation();
+    } finally {
+      _lifecycleLockSuspensions -= 1;
+      if (_lifecycleLockSuspensions <= 0) {
+        _lifecycleLockSuspensions = 0;
+        await restart();
+      }
+    }
+  }
+
+  bool get _lifecycleLockSuspended => _lifecycleLockSuspensions > 0;
 
   bool _isUnsafeLifecycleState(AppLifecycleState state) {
     return state == AppLifecycleState.paused ||

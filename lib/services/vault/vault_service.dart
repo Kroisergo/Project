@@ -1,15 +1,13 @@
-import 'dart:convert';
-import 'dart:typed_data';
-
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../models/vault_data.dart';
-import '../../models/vault_header.dart';
 import '../../utils/constants.dart';
-import '../crypto/crypto_params.dart';
 import '../crypto/crypto_service.dart';
 import '../crypto/sodium_provider.dart';
 import '../storage/vault_file_service.dart';
+import 'vault_chunk_crypto_service.dart';
+import 'vault_chunked_file_writer.dart';
+import 'vault_v3_header_factory.dart';
 
 class VaultService {
   VaultService({
@@ -32,70 +30,39 @@ class VaultService {
       sodium,
       sodium.crypto.pwhash.saltBytes,
     );
-    final nonce = cryptoService.randomBytes(
-      sodium,
-      sodium.crypto.aeadXChaCha20Poly1305IETF.nonceBytes,
-    );
-
     final key = await cryptoService.deriveKeyInBackground(
       sodium: sodium,
       masterPassword: masterPassword,
       salt: salt,
       params: kdfParams,
     );
-
+    final header = VaultV3HeaderFactory.create(
+      sodium: sodium,
+      kdfParams: kdfParams,
+      salt: salt,
+    );
     final vaultData = VaultData(
-      version: VaultConstants.currentDataVersion,
+      version: VaultConstants.v3DataVersion,
       updatedAt: DateTime.now().toUtc(),
       entries: const [],
+      documents: const [],
     );
+    final target = await vaultFileService.vaultFileForName(fileName);
 
-    final plaintext = Uint8List.fromList(
-      utf8.encode(jsonEncode(vaultData.toJson())),
-    );
-    final header = _buildHeader(kdfParams: kdfParams, salt: salt, nonce: nonce);
-    final headerBytes = Uint8List.fromList(
-      utf8.encode(jsonEncode(header.toJson())),
-    );
-
-    late final Uint8List cipherBytes;
     try {
-      cipherBytes = cryptoService.encrypt(
+      await VaultChunkedFileWriter(
+        fileService: vaultFileService,
+        chunkCrypto: VaultChunkCryptoService(),
+      ).write(
         sodium: sodium,
-        plaintext: plaintext,
-        nonce: nonce,
+        target: target,
+        header: header,
+        data: vaultData,
         key: key,
-        headerBytes: headerBytes,
       );
     } finally {
-      plaintext.fillRange(0, plaintext.length, 0);
       key.dispose();
     }
-
-    final target = await vaultFileService.vaultFileForName(fileName);
-    await vaultFileService.writeVault(
-      target: target,
-      headerBytes: headerBytes,
-      cipherBytes: cipherBytes,
-    );
-  }
-
-  VaultHeader _buildHeader({
-    required CryptoParams kdfParams,
-    required Uint8List salt,
-    required Uint8List nonce,
-  }) {
-    return VaultHeader(
-      magic: VaultConstants.magic,
-      formatVersion: VaultConstants.formatVersion,
-      cipherId: VaultConstants.cipherId,
-      kdf: VaultConstants.kdfId,
-      memLimit: kdfParams.memLimit,
-      opsLimit: kdfParams.opsLimit,
-      parallelism: kdfParams.parallelism,
-      saltB64: base64Encode(salt),
-      nonceB64: base64Encode(nonce),
-    );
   }
 }
 

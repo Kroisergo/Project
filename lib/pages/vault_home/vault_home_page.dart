@@ -391,6 +391,16 @@ class _VaultHomePageState extends ConsumerState<VaultHomePage>
             ),
           if (!_selectionMode)
             IconButton(
+              icon: const Icon(Icons.folder_special_outlined),
+              tooltip: 'Documentos sigilosos',
+              onPressed: () async {
+                await _autoLock.refreshTimeout();
+                if (!context.mounted) return;
+                context.push(RouterPaths.vaultDocuments);
+              },
+            ),
+          if (!_selectionMode)
+            IconButton(
               icon: const Icon(Icons.settings_outlined),
               tooltip: 'Configurações',
               onPressed: () async {
@@ -458,6 +468,13 @@ class _VaultHomePageState extends ConsumerState<VaultHomePage>
                           onShowAlerts: healthReport?.hasImportantAlerts == true
                               ? _showHealthInfo
                               : null,
+                        ),
+                        _VaultDocumentsShortcut(
+                          count: vault.data?.documents.length ?? 0,
+                          onTap: () {
+                            _autoLock.restart();
+                            context.push(RouterPaths.vaultDocuments);
+                          },
                         ),
                         _VaultSearchBar(
                           controller: _searchController,
@@ -739,6 +756,76 @@ class _VaultSummaryCard extends StatelessWidget {
                   ),
                 ),
               ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _VaultDocumentsShortcut extends StatelessWidget {
+  const _VaultDocumentsShortcut({required this.count, required this.onTap});
+
+  final int count;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = _VaultHomeColors.from(context);
+    final tokens = EncryVaultTheme.of(context);
+    final isClassic = colors.isClassicDesign;
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+      child: AppSurface(
+        elevated: !isClassic,
+        radius: isClassic ? 12 : 18,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        onTap: onTap,
+        child: Row(
+          children: [
+            Container(
+              width: 38,
+              height: 38,
+              decoration: BoxDecoration(
+                color: tokens.accentSoft,
+                borderRadius: BorderRadius.circular(isClassic ? 10 : 14),
+                border: Border.all(color: tokens.border),
+              ),
+              child: Icon(
+                Icons.folder_special_outlined,
+                color: tokens.accent,
+                size: 20,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Documentos sigilosos',
+                    style: TextStyle(
+                      color: tokens.textPrimary,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    count == 1
+                        ? '1 documento guardado'
+                        : '$count documentos guardados',
+                    style: TextStyle(
+                      color: tokens.textSecondary,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Icon(Icons.chevron_right_rounded, color: tokens.textMuted),
           ],
         ),
       ),
