@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../config/theme/design_tokens.dart';
+import '../../models/app_design_mode.dart';
 import '../../models/vault_entry.dart';
 import '../../services/security/trash_pin_service.dart';
 import '../../services/storage/preferences_service.dart';
@@ -9,7 +11,9 @@ import '../../services/vault/auto_lock_controller.dart';
 import '../../services/vault/trash_retention_policy.dart';
 import '../../services/vault/vault_state.dart';
 import '../../utils/time_labels.dart';
+import '../../widgets/app_surface.dart';
 import '../../widgets/sensitive_action_confirmation.dart';
+import '../../widgets/vault_category_icon.dart';
 import '../unlock/unlock_page.dart';
 
 class VaultTrashPage extends ConsumerStatefulWidget {
@@ -279,6 +283,8 @@ class _VaultTrashPageState extends ConsumerState<VaultTrashPage>
 
   @override
   Widget build(BuildContext context) {
+    final tokens = EncryVaultTheme.of(context);
+    final useModernCards = usesModernTrashEntryCards(tokens.designMode);
     final deletedEntries =
         (ref.watch(vaultProvider).data?.deletedEntries ?? []).toList()..sort(
           (a, b) => (b.deletedAt ?? b.updatedAt).compareTo(
@@ -288,6 +294,7 @@ class _VaultTrashPageState extends ConsumerState<VaultTrashPage>
     final selectedCount = _selectedIds.length;
 
     return Scaffold(
+      backgroundColor: tokens.background,
       appBar: AppBar(
         title: Text(_selectionMode ? '$selectedCount selecionada(s)' : 'Lixo'),
         actions: [
@@ -324,21 +331,39 @@ class _VaultTrashPageState extends ConsumerState<VaultTrashPage>
             : Column(
                 children: [
                   Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-                    child: _TrashRetentionNotice(retention: _retention),
+                    padding: EdgeInsets.fromLTRB(
+                      tokens.pagePadding,
+                      12,
+                      tokens.pagePadding,
+                      useModernCards ? 12 : 8,
+                    ),
+                    child: _TrashRetentionNotice(
+                      retention: _retention,
+                      useModernCard: useModernCards,
+                    ),
                   ),
                   if (_busy) const LinearProgressIndicator(),
                   Expanded(
                     child: ListView.separated(
+                      padding: useModernCards
+                          ? EdgeInsets.fromLTRB(
+                              tokens.pagePadding,
+                              0,
+                              tokens.pagePadding,
+                              tokens.pagePadding,
+                            )
+                          : EdgeInsets.zero,
                       itemCount: deletedEntries.length,
-                      separatorBuilder: (context, index) =>
-                          const Divider(height: 1),
+                      separatorBuilder: (context, index) => useModernCards
+                          ? const SizedBox(height: 12)
+                          : const Divider(height: 1),
                       itemBuilder: (context, index) {
                         final entry = deletedEntries[index];
                         return _TrashEntryTile(
                           entry: entry,
                           selected: _selectedIds.contains(entry.id),
                           selectionMode: _selectionMode,
+                          useModernCard: useModernCards,
                           onTap: () {
                             _autoLock.restart();
                             if (_selectionMode) _toggleSelection(entry.id);
@@ -367,6 +392,7 @@ class _TrashEntryTile extends StatelessWidget {
   final VaultEntry entry;
   final bool selected;
   final bool selectionMode;
+  final bool useModernCard;
   final VoidCallback onTap;
   final VoidCallback onLongPress;
   final VoidCallback? onDetails;
@@ -377,6 +403,7 @@ class _TrashEntryTile extends StatelessWidget {
     required this.entry,
     required this.selected,
     required this.selectionMode,
+    required this.useModernCard,
     required this.onTap,
     required this.onLongPress,
     required this.onDetails,
@@ -386,52 +413,196 @@ class _TrashEntryTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ListTile(
+    final tokens = EncryVaultTheme.of(context);
+    final tile = ListTile(
+      minTileHeight: useModernCard ? 76 : null,
+      contentPadding: EdgeInsets.symmetric(
+        horizontal: useModernCard ? 14 : 16,
+        vertical: useModernCard ? 6 : 0,
+      ),
       leading: selectionMode
           ? Checkbox(value: selected, onChanged: (_) => onTap())
+          : useModernCard
+          ? VaultCategoryIcon(category: entry.category, size: 42)
           : const Icon(Icons.delete_outline),
-      title: Text(entry.title),
-      subtitle: Text(
-        'Eliminada: ${_formatDate(entry.deletedAt ?? entry.updatedAt)}',
+      title: Text(
+        entry.title,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: useModernCard
+            ? Theme.of(context).textTheme.titleSmall?.copyWith(
+                fontSize: 15,
+                fontWeight: FontWeight.w800,
+              )
+            : null,
+      ),
+      subtitle: Padding(
+        padding: EdgeInsets.only(top: useModernCard ? 4 : 0),
+        child: Text(
+          'Eliminada: ${_formatDate(entry.deletedAt ?? entry.updatedAt)}',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: useModernCard
+              ? Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: tokens.textMuted,
+                  fontSize: 12,
+                )
+              : null,
+        ),
       ),
       trailing: selectionMode
           ? null
-          : PopupMenuButton<_TrashAction>(
-              onSelected: (action) {
-                switch (action) {
-                  case _TrashAction.details:
-                    onDetails?.call();
-                    break;
-                  case _TrashAction.restore:
-                    onRestore?.call();
-                    break;
-                  case _TrashAction.delete:
-                    onDelete?.call();
-                    break;
-                }
-              },
-              itemBuilder: (context) => const [
-                PopupMenuItem(
-                  value: _TrashAction.details,
-                  child: Text('Detalhes'),
-                ),
-                PopupMenuItem(
-                  value: _TrashAction.restore,
-                  child: Text('Restaurar'),
-                ),
-                PopupMenuItem(
-                  value: _TrashAction.delete,
-                  child: Text('Eliminar definitivamente'),
-                ),
-              ],
+          : _TrashActionMenu(
+              useModernCard: useModernCard,
+              onDetails: onDetails,
+              onRestore: onRestore,
+              onDelete: onDelete,
             ),
       onTap: onTap,
       onLongPress: onLongPress,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(
+          useModernCard ? tokens.cardRadius : 0,
+        ),
+      ),
+    );
+
+    if (!useModernCard) return tile;
+
+    return AppSurface(
+      elevated: true,
+      padding: EdgeInsets.zero,
+      radius: tokens.cardRadius,
+      borderColor: selected ? tokens.accent : null,
+      backgroundColor: selected
+          ? tokens.accent.withValues(alpha: tokens.isDark ? 0.12 : 0.08)
+          : null,
+      child: tile,
     );
   }
 
   String _formatDate(DateTime date) {
     return formatDateTime(date);
+  }
+}
+
+class _TrashActionMenu extends StatelessWidget {
+  const _TrashActionMenu({
+    required this.useModernCard,
+    required this.onDetails,
+    required this.onRestore,
+    required this.onDelete,
+  });
+
+  final bool useModernCard;
+  final VoidCallback? onDetails;
+  final VoidCallback? onRestore;
+  final VoidCallback? onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = EncryVaultTheme.of(context);
+    return PopupMenuButton<_TrashAction>(
+      tooltip: 'Ações',
+      icon: useModernCard
+          ? Icon(Icons.more_horiz_rounded, color: tokens.textMuted)
+          : null,
+      color: useModernCard ? tokens.surfaceRaised : null,
+      surfaceTintColor: Colors.transparent,
+      elevation: useModernCard ? 10 : null,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(useModernCard ? 16 : 4),
+        side: useModernCard
+            ? BorderSide(color: tokens.border)
+            : BorderSide.none,
+      ),
+      onSelected: (action) {
+        switch (action) {
+          case _TrashAction.details:
+            onDetails?.call();
+            break;
+          case _TrashAction.restore:
+            onRestore?.call();
+            break;
+          case _TrashAction.delete:
+            onDelete?.call();
+            break;
+        }
+      },
+      itemBuilder: (context) => [
+        PopupMenuItem(
+          value: _TrashAction.details,
+          child: _TrashMenuActionRow(
+            icon: Icons.info_outline_rounded,
+            label: 'Detalhes',
+            color: tokens.accent,
+            useModernCard: useModernCard,
+          ),
+        ),
+        PopupMenuItem(
+          value: _TrashAction.restore,
+          child: _TrashMenuActionRow(
+            icon: Icons.restore_rounded,
+            label: 'Restaurar',
+            color: tokens.success,
+            useModernCard: useModernCard,
+          ),
+        ),
+        PopupMenuItem(
+          value: _TrashAction.delete,
+          child: _TrashMenuActionRow(
+            icon: Icons.delete_forever_outlined,
+            label: 'Eliminar definitivamente',
+            color: Theme.of(context).colorScheme.error,
+            useModernCard: useModernCard,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _TrashMenuActionRow extends StatelessWidget {
+  const _TrashMenuActionRow({
+    required this.icon,
+    required this.label,
+    required this.color,
+    required this.useModernCard,
+  });
+
+  final IconData icon;
+  final String label;
+  final Color color;
+  final bool useModernCard;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!useModernCard) return Text(label);
+
+    return Row(
+      children: [
+        Container(
+          width: 30,
+          height: 30,
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: 0.14),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Icon(icon, color: color, size: 17),
+        ),
+        const SizedBox(width: 12),
+        Flexible(
+          child: Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: Theme.of(
+              context,
+            ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w700),
+          ),
+        ),
+      ],
+    );
   }
 }
 
@@ -519,11 +690,50 @@ class _TrashPinPromptDialogState extends State<_TrashPinPromptDialog> {
 
 class _TrashRetentionNotice extends StatelessWidget {
   final TrashRetentionOption retention;
+  final bool useModernCard;
 
-  const _TrashRetentionNotice({required this.retention});
+  const _TrashRetentionNotice({
+    required this.retention,
+    required this.useModernCard,
+  });
 
   @override
   Widget build(BuildContext context) {
+    if (useModernCard) {
+      final tokens = EncryVaultTheme.of(context);
+      return AppSurface(
+        elevated: true,
+        radius: 16,
+        padding: const EdgeInsets.all(14),
+        child: Row(
+          children: [
+            Container(
+              width: 34,
+              height: 34,
+              decoration: BoxDecoration(
+                color: tokens.accent.withValues(alpha: 0.14),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(
+                Icons.info_outline_rounded,
+                color: tokens.accent,
+                size: 18,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                TrashRetentionPolicy.noticeText(retention),
+                style: Theme.of(
+                  context,
+                ).textTheme.bodySmall?.copyWith(height: 1.25),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
     return Material(
       color: Theme.of(context).colorScheme.surfaceContainerHighest,
       borderRadius: BorderRadius.circular(8),
@@ -539,4 +749,8 @@ class _TrashRetentionNotice extends StatelessWidget {
       ),
     );
   }
+}
+
+bool usesModernTrashEntryCards(AppDesignMode designMode) {
+  return designMode == AppDesignMode.modern;
 }

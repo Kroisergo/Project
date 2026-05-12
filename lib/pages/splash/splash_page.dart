@@ -5,7 +5,6 @@ import 'package:go_router/go_router.dart';
 
 import '../../services/bootstrap/bootstrap_service.dart';
 import '../terms/terms_page.dart';
-import '../unlock/unlock_page.dart';
 import '../welcome/welcome_page.dart';
 
 class SplashPage extends ConsumerStatefulWidget {
@@ -36,7 +35,7 @@ class _SplashPageState extends ConsumerState<SplashPage> {
     String target = WelcomePage.routePath;
     try {
       final result = await ref.read(bootstrapProvider.future);
-      target = _nextRoute(result);
+      target = startupRouteForBootstrap(result);
     } catch (_) {
       target = WelcomePage.routePath;
     }
@@ -52,14 +51,11 @@ class _SplashPageState extends ConsumerState<SplashPage> {
   Widget build(BuildContext context) {
     return const Scaffold(body: SizedBox.expand());
   }
+}
 
-  String _nextRoute(BootstrapResult result) {
-    if (!result.termsAccepted) {
-      return TermsPage.routePath;
-    }
-    if (result.hasVault) {
-      return UnlockPage.routePath;
-    }
-    return WelcomePage.routePath;
+String startupRouteForBootstrap(BootstrapResult result) {
+  if (!result.termsAccepted) {
+    return TermsPage.routePath;
   }
+  return WelcomePage.routePath;
 }

@@ -3,6 +3,7 @@ import 'package:password_strength_checker/password_strength_checker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:encryvault/models/tag_display_mode.dart';
+import 'package:encryvault/models/quick_link_preset.dart';
 import 'package:encryvault/models/vault_data.dart';
 import 'package:encryvault/models/vault_entry.dart';
 import 'package:encryvault/models/vault_sort_mode.dart';
@@ -100,6 +101,56 @@ void main() {
       expect(data.activeEntries, [active]);
       expect(data.deletedEntries, [deleted]);
       expect(deleted.toJson()['deletedAt'], isNotNull);
+    });
+  });
+
+  group('Quick link presets', () {
+    test('exposes more built-in links than the old quick list', () {
+      expect(defaultQuickLinkPresets.length, greaterThan(3));
+      expect(
+        defaultQuickLinkPresets.map((preset) => preset.label),
+        containsAll(['Instagram', 'Facebook', 'Google', 'GitHub', 'Amazon']),
+      );
+    });
+
+    test('serializes and stores custom quick links in preferences', () async {
+      SharedPreferences.setMockInitialValues({});
+      final preferences = PreferencesService();
+      const custom = QuickLinkPreset(
+        label: 'Banco Teste',
+        url: 'https://banco.example/',
+        icon: QuickLinkIcon.bank,
+      );
+
+      await preferences.setCustomQuickLinks([custom]);
+
+      expect(await preferences.getCustomQuickLinks(), [custom]);
+    });
+
+    test('combines built-in and custom links without duplicate URLs', () {
+      const custom = QuickLinkPreset(
+        label: 'Instagram duplicado',
+        url: 'https://www.instagram.com/',
+        icon: QuickLinkIcon.social,
+      );
+      final effective = effectiveQuickLinkPresets([custom]);
+
+      expect(
+        effective
+            .where((preset) => preset.url == 'https://www.instagram.com/')
+            .length,
+        1,
+      );
+      expect(effective.length, defaultQuickLinkPresets.length);
+    });
+
+    test('shows only two quick links before the more action', () {
+      final links = effectiveQuickLinkPresets(const []);
+
+      expect(previewQuickLinkPresets(links), links.take(2).toList());
+      expect(remainingQuickLinkPresets(links), links.skip(2).toList());
+      expect(previewQuickLinkPresets(links), hasLength(2));
+      expect(remainingQuickLinkPresets(links), isNotEmpty);
     });
   });
 
@@ -333,6 +384,25 @@ void main() {
       expect(report.oldTrash, 1);
     });
 
+    test('vault health score only counts weak, old and empty passwords', () {
+      const report = PasswordHealthReport(
+        total: 10,
+        weak: 1,
+        reused: 6,
+        reusedGroups: 3,
+        old: 1,
+        empty: 1,
+        uncategorized: 4,
+        neverOpened: 4,
+        rarelyUsed: 4,
+        largeHistory: 4,
+        oldTrash: 4,
+      );
+
+      expect(PasswordHealthService.vaultHealthScore(report), 78);
+      expect(PasswordHealthService.vaultHealthAttentionPoints(report), 3);
+    });
+
     test('returns concrete feedback messages', () {
       final messages = PasswordFeedbackService.messages(
         password: 'password123',
@@ -408,6 +478,27 @@ void main() {
       expect(key.contains('palavra-passe'), isFalse);
     });
 
+    test('stores ignored alerts without expiry', () async {
+      SharedPreferences.setMockInitialValues({});
+      final preferences = PreferencesService();
+      const key = 'entry-a:weak';
+
+      await preferences.setIgnoredEntryAlertExpiries({
+        key: VaultConstants.ignoredAlertNoExpiryValue,
+      });
+      final saved = await preferences.getIgnoredEntryAlertExpiries();
+
+      expect(saved, {key: VaultConstants.ignoredAlertNoExpiryValue});
+      expect(
+        IgnoredAlertExpiries.isIgnored(
+          key,
+          saved,
+          now: DateTime.utc(2026, 1, 1),
+        ),
+        isTrue,
+      );
+    });
+
     test('cleans expired ignored alert expiries with controlled time', () {
       final now = DateTime.utc(2026, 1, 1, 12);
       final active = PasswordHealthService.alertIgnoreKey(
@@ -424,10 +515,15 @@ void main() {
         expired: now
             .subtract(const Duration(minutes: 1))
             .millisecondsSinceEpoch,
+        'entry-c:weak': VaultConstants.ignoredAlertNoExpiryValue,
       }, now: now);
 
       expect(cleaned, containsPair(active, cleaned[active]));
       expect(cleaned.containsKey(expired), isFalse);
+      expect(
+        cleaned,
+        containsPair('entry-c:weak', VaultConstants.ignoredAlertNoExpiryValue),
+      );
     });
 
     test('ignored alert controller can remove saved expiry', () async {

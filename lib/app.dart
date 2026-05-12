@@ -4,6 +4,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'config/router.dart';
 import 'config/theme.dart';
+import 'models/app_design_mode.dart';
+import 'services/theme/app_design_controller.dart';
 import 'services/theme/theme_mode_controller.dart';
 import 'widgets/app_security_effects.dart';
 
@@ -13,13 +15,16 @@ class EncryVaultApp extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final router = ref.watch(routerProvider);
+    final designMode =
+        ref.watch(appDesignControllerProvider).valueOrNull ??
+        AppDesignMode.modern;
     final themeMode =
         ref.watch(themeModeControllerProvider).valueOrNull ?? ThemeMode.system;
     return AppSecurityEffects(
       child: MaterialApp.router(
         title: 'EncryVault',
-        theme: AppTheme.light,
-        darkTheme: AppTheme.dark,
+        theme: AppTheme.light(designMode),
+        darkTheme: AppTheme.dark(designMode),
         themeMode: themeMode,
         builder: (context, child) => AppLifecycleLockGuard(
           router: router,

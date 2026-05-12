@@ -8,16 +8,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:encryvault/app.dart';
 
 void main() {
   testWidgets('EncryVaultApp renders splash', (WidgetTester tester) async {
-    await tester.pumpWidget(
-      const ProviderScope(
-        child: EncryVaultApp(),
-      ),
-    );
+    SharedPreferences.setMockInitialValues({});
+
+    await tester.pumpWidget(const ProviderScope(child: EncryVaultApp()));
 
     expect(find.byType(Scaffold), findsOneWidget);
   });

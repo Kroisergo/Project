@@ -4,6 +4,9 @@ import 'package:go_router/go_router.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
+import '../../config/theme/design_tokens.dart';
+import '../../models/app_design_mode.dart';
+import '../../models/quick_link_preset.dart';
 import '../../models/vault_entry.dart';
 import '../../services/security/ignored_alerts_controller.dart';
 import '../../services/security/master_password_policy.dart';
@@ -12,16 +15,21 @@ import '../../services/security/screen_protection_controller.dart';
 import '../../services/security/trash_pin_service.dart';
 import '../../services/storage/preferences_service.dart';
 import '../../services/storage/vault_file_service.dart';
-import '../../services/theme/theme_mode_controller.dart';
 import '../../services/vault/auto_lock_controller.dart';
 import '../../services/vault/trash_retention_policy.dart';
 import '../../services/vault/vault_repository.dart';
 import '../../services/vault/vault_state.dart';
 import '../../utils/constants.dart';
 import '../../utils/router_paths.dart';
+import '../../widgets/app_surface.dart';
 import '../../widgets/password_policy_status.dart';
+import '../../widgets/quick_link_icon.dart';
+import '../../widgets/quick_link_preset_dialog.dart';
 import '../../widgets/sensitive_action_confirmation.dart';
+import '../../widgets/vault_category_icon.dart';
+import '../terms/terms_page.dart';
 import '../unlock/unlock_page.dart';
+import 'widgets/appearance_settings_section.dart';
 import 'widgets/ignored_alerts_section.dart';
 import 'widgets/tag_display_settings_section.dart';
 
@@ -49,7 +57,6 @@ class _VaultSettingsPageState extends ConsumerState<VaultSettingsPage>
   bool _busy = false;
   String _vaultFileName = VaultConstants.defaultVaultName;
   int _autoLockMinutes = 2;
-  ThemeMode _themeMode = ThemeMode.system;
   TrashRetentionOption _trashRetention = TrashRetentionPolicy.defaultOption;
   bool _requireSensitiveActionConfirmation = false;
   bool _savePasswordHistory = true;
@@ -57,6 +64,7 @@ class _VaultSettingsPageState extends ConsumerState<VaultSettingsPage>
   bool _visualProtection = true;
   bool _protectScreenRecording = true;
   Map<TrashPinAction, bool> _trashPinEnabled = const {};
+  List<QuickLinkPreset> _customQuickLinks = const [];
   late final AutoLockController _autoLock;
 
   @override
@@ -90,7 +98,6 @@ class _VaultSettingsPageState extends ConsumerState<VaultSettingsPage>
       'vault_export${VaultConstants.vaultExtension}',
     );
     final minutes = await _prefs.getAutoLockMinutes();
-    final savedThemeMode = await _prefs.getThemeMode();
     final trashRetention = await _prefs.getTrashRetentionOption();
     final requireSensitiveActionConfirmation = await _prefs
         .getRequireSensitiveActionConfirmation();
@@ -98,6 +105,7 @@ class _VaultSettingsPageState extends ConsumerState<VaultSettingsPage>
     final protectScreenshots = await _prefs.getProtectScreenshots();
     final visualProtection = await _prefs.getVisualProtection();
     final protectScreenRecording = await _prefs.getProtectScreenRecording();
+    final customQuickLinks = await _prefs.getCustomQuickLinks();
     final trashPinService = ref.read(trashPinServiceProvider);
     final trashPinEnabled = <TrashPinAction, bool>{};
     for (final action in TrashPinAction.values) {
@@ -112,7 +120,6 @@ class _VaultSettingsPageState extends ConsumerState<VaultSettingsPage>
     _backupController.text = defaultExport;
     setState(() {
       _autoLockMinutes = minutes;
-      _themeMode = savedThemeMode;
       _trashRetention = trashRetention;
       _requireSensitiveActionConfirmation = requireSensitiveActionConfirmation;
       _savePasswordHistory = savePasswordHistory;
@@ -120,6 +127,7 @@ class _VaultSettingsPageState extends ConsumerState<VaultSettingsPage>
       _visualProtection = visualProtection;
       _protectScreenRecording = protectScreenRecording;
       _trashPinEnabled = trashPinEnabled;
+      _customQuickLinks = customQuickLinks;
     });
   }
 
@@ -276,19 +284,6 @@ class _VaultSettingsPageState extends ConsumerState<VaultSettingsPage>
               : 'Bloqueio automático ajustado para $minutes minutos.',
         ),
       ),
-    );
-  }
-
-  Future<void> _updateThemeMode(
-    ThemeMode mode, {
-    VoidCallback? onStateChanged,
-  }) async {
-    setState(() => _themeMode = mode);
-    onStateChanged?.call();
-    await ref.read(themeModeControllerProvider.notifier).setMode(mode);
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Tema ajustado para ${_themeModeLabel(mode)}')),
     );
   }
 
@@ -507,6 +502,65 @@ class _VaultSettingsPageState extends ConsumerState<VaultSettingsPage>
     );
   }
 
+  Future<void> _editQuickLink({
+    QuickLinkPreset? existing,
+    VoidCallback? onStateChanged,
+  }) async {
+    await _autoLock.restart();
+    if (!mounted) return;
+    final result = await showDialog<QuickLinkPresetDialogResult>(
+      context: context,
+      builder: (context) => QuickLinkPresetDialog(
+        initialPreset: existing,
+        title: existing == null
+            ? 'Adicionar link rápido'
+            : 'Editar link rápido',
+        actionLabel: existing == null ? 'Adicionar' : 'Guardar',
+      ),
+    );
+    if (result == null || !mounted) return;
+    final existingUrl = existing?.normalizedUrl.toLowerCase();
+    final newUrl = result.preset.normalizedUrl.toLowerCase();
+    final nextLinks = [
+      ..._customQuickLinks.where((link) {
+        final linkUrl = link.normalizedUrl.toLowerCase();
+        return linkUrl != existingUrl && linkUrl != newUrl;
+      }),
+      result.preset,
+    ];
+    await _prefs.setCustomQuickLinks(nextLinks);
+    if (!mounted) return;
+    setState(() => _customQuickLinks = nextLinks);
+    onStateChanged?.call();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          existing == null
+              ? 'Link rápido adicionado.'
+              : 'Link rápido atualizado.',
+        ),
+      ),
+    );
+  }
+
+  Future<void> _deleteQuickLink(
+    QuickLinkPreset link, {
+    VoidCallback? onStateChanged,
+  }) async {
+    await _autoLock.restart();
+    final targetUrl = link.normalizedUrl.toLowerCase();
+    final nextLinks = _customQuickLinks
+        .where((current) => current.normalizedUrl.toLowerCase() != targetUrl)
+        .toList();
+    await _prefs.setCustomQuickLinks(nextLinks);
+    if (!mounted) return;
+    setState(() => _customQuickLinks = nextLinks);
+    onStateChanged?.call();
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('Link rápido removido.')));
+  }
+
   Future<void> _openCategory({
     required String title,
     required _SettingsCategoryBuilder builder,
@@ -523,15 +577,39 @@ class _VaultSettingsPageState extends ConsumerState<VaultSettingsPage>
 
   @override
   Widget build(BuildContext context) {
+    final tokens = EncryVaultTheme.of(context);
     return Scaffold(
+      backgroundColor: tokens.background,
       appBar: AppBar(title: const Text('Configurar cofre')),
       body: GestureDetector(
         behavior: HitTestBehavior.opaque,
         onTap: () => _autoLock.restart(),
         onPanDown: (_) => _autoLock.restart(),
         child: ListView(
-          padding: const EdgeInsets.all(16),
+          padding: EdgeInsets.all(tokens.pagePadding),
           children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(4, 0, 4, 22),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Configurações do cofre',
+                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                      fontSize: 24,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Gere segurança, aparência e dados locais num só lugar.',
+                    style: Theme.of(
+                      context,
+                    ).textTheme.bodyMedium?.copyWith(height: 1.35),
+                  ),
+                ],
+              ),
+            ),
             _SettingsCategoryTile(
               title: 'Segurança',
               subtitle: 'Palavra-passe mestra e proteções sensíveis',
@@ -742,11 +820,11 @@ class _VaultSettingsPageState extends ConsumerState<VaultSettingsPage>
             ),
             const SizedBox(height: 16),
             _SettingsCategoryTile(
-              title: 'Dados / cópias de segurança',
+              title: 'Dados',
               subtitle: 'Exportar, importar e verificar cópias de segurança',
               icon: Icons.folder_outlined,
               onTap: () => _openCategory(
-                title: 'Dados / cópias de segurança',
+                title: 'Dados',
                 builder: (context, refresh) => [
                   Padding(
                     padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
@@ -834,41 +912,34 @@ class _VaultSettingsPageState extends ConsumerState<VaultSettingsPage>
             ),
             const SizedBox(height: 16),
             _SettingsCategoryTile(
+              title: 'Links rápidos',
+              subtitle: 'Links e ícones disponíveis ao criar entradas',
+              icon: Icons.add_link_outlined,
+              onTap: () => _openCategory(
+                title: 'Links rápidos',
+                builder: (context, refresh) => [
+                  _QuickLinksSettingsSection(
+                    customLinks: _customQuickLinks,
+                    onAdd: () => _editQuickLink(onStateChanged: refresh),
+                    onEdit: (link) =>
+                        _editQuickLink(existing: link, onStateChanged: refresh),
+                    onDelete: (link) =>
+                        _deleteQuickLink(link, onStateChanged: refresh),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+            _SettingsCategoryTile(
               title: 'Aparência',
               subtitle: 'Tema e aparência',
               icon: Icons.palette_outlined,
               onTap: () => _openCategory(
                 title: 'Aparência',
                 builder: (context, refresh) => [
-                  ListTile(
-                    leading: const Icon(Icons.palette_outlined),
-                    title: const Text('Tema'),
-                    subtitle: const Text('Modo de aparência da aplicação'),
-                    trailing: DropdownButton<ThemeMode>(
-                      value: _themeMode,
-                      items: const [
-                        DropdownMenuItem(
-                          value: ThemeMode.system,
-                          child: Text('Sistema'),
-                        ),
-                        DropdownMenuItem(
-                          value: ThemeMode.light,
-                          child: Text('Claro'),
-                        ),
-                        DropdownMenuItem(
-                          value: ThemeMode.dark,
-                          child: Text('Escuro'),
-                        ),
-                      ],
-                      onChanged: _busy
-                          ? null
-                          : (mode) async {
-                              await _updateThemeMode(
-                                mode ?? ThemeMode.system,
-                                onStateChanged: refresh,
-                              );
-                            },
-                    ),
+                  AppearanceSettingsSection(
+                    enabled: !_busy,
+                    onStateChanged: refresh,
                   ),
                   const Divider(height: 1),
                   const TagDisplaySettingsSection(),
@@ -921,21 +992,37 @@ class _VaultSettingsPageState extends ConsumerState<VaultSettingsPage>
                 ],
               ),
             ),
+            const SizedBox(height: 16),
+            _SettingsCategoryTile(
+              title: 'Termos de utilização',
+              subtitle: 'Rever os termos aceites',
+              icon: Icons.description_outlined,
+              onTap: () => _openCategory(
+                title: 'Termos de utilização',
+                builder: (context, refresh) => const [
+                  Padding(
+                    padding: EdgeInsets.fromLTRB(16, 12, 16, 16),
+                    child: TermsContent(),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 16),
+            _SettingsCategoryTile(
+              title: 'Sobre EncryVault',
+              subtitle: 'Marca, identidade e direitos',
+              icon: Icons.info_outline,
+              onTap: () => _openCategory(
+                title: 'Sobre EncryVault',
+                builder: (context, refresh) => const [
+                  _AboutEncryVaultSection(),
+                ],
+              ),
+            ),
           ],
         ),
       ),
     );
-  }
-
-  String _themeModeLabel(ThemeMode mode) {
-    switch (mode) {
-      case ThemeMode.system:
-        return 'Sistema';
-      case ThemeMode.light:
-        return 'Claro';
-      case ThemeMode.dark:
-        return 'Escuro';
-    }
   }
 }
 
@@ -954,17 +1041,30 @@ class _SettingsCategoryTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Material(
-      color: Theme.of(context).colorScheme.surfaceContainerHighest,
-      borderRadius: BorderRadius.circular(8),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(8),
-        child: ListTile(
-          leading: Icon(icon),
-          title: Text(title, style: Theme.of(context).textTheme.titleSmall),
-          subtitle: Text(subtitle),
-          trailing: const Icon(Icons.chevron_right),
-          onTap: onTap,
+    final tokens = EncryVaultTheme.of(context);
+    final isClassic = tokens.designMode == AppDesignMode.classic;
+    return AppSurface(
+      padding: EdgeInsets.zero,
+      elevated: !isClassic,
+      minHeight: isClassic ? 70 : 88,
+      radius: isClassic ? 10 : tokens.cardRadius,
+      leadingAccentColor: isClassic ? tokens.accentMuted : null,
+      leadingAccentWidth: isClassic ? 3 : 0,
+      child: ListTile(
+        minTileHeight: isClassic ? 70 : 82,
+        contentPadding: EdgeInsets.only(left: isClassic ? 20 : 16, right: 10),
+        leading: isClassic ? null : Icon(icon, color: tokens.accent),
+        title: Text(
+          title,
+          style: Theme.of(
+            context,
+          ).textTheme.titleSmall?.copyWith(fontSize: isClassic ? 14.5 : 15),
+        ),
+        subtitle: Text(subtitle),
+        trailing: const Icon(Icons.chevron_right),
+        onTap: onTap,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(tokens.cardRadius),
         ),
       ),
     );
@@ -989,23 +1089,490 @@ class _SettingsCategoryPageState extends State<_SettingsCategoryPage> {
 
   @override
   Widget build(BuildContext context) {
+    final tokens = EncryVaultTheme.of(context);
+    final categoryChildren = widget.builder(context, _refresh);
+    final isModernHealth =
+        tokens.designMode == AppDesignMode.modern &&
+        widget.title == 'Auditoria / Saúde';
+    final isModernQuickLinks =
+        widget.title == 'Links rápidos' &&
+        usesModernQuickLinksSettingsCards(tokens.designMode);
+    final useModernCards =
+        tokens.designMode == AppDesignMode.modern &&
+        usesModernSettingsCategoryCards(widget.title);
     return Scaffold(
+      backgroundColor: tokens.background,
       appBar: AppBar(title: Text(widget.title)),
       body: ListView(
-        padding: const EdgeInsets.all(16),
+        padding: EdgeInsets.all(tokens.pagePadding),
+        children: isModernHealth || isModernQuickLinks
+            ? categoryChildren
+            : useModernCards
+            ? _modernSettingsCategoryCards(categoryChildren, tokens)
+            : [
+                AppSurface(
+                  padding: const EdgeInsets.symmetric(vertical: 4),
+                  child: Column(children: categoryChildren),
+                ),
+              ],
+      ),
+    );
+  }
+
+  List<Widget> _modernSettingsCategoryCards(
+    List<Widget> children,
+    EncryVaultTheme tokens,
+  ) {
+    final cards = <Widget>[];
+    var group = <Widget>[];
+
+    void flushGroup() {
+      if (group.isEmpty) return;
+      cards.add(
+        AppSurface(
+          elevated: true,
+          padding: EdgeInsets.zero,
+          radius: tokens.cardRadius,
+          child: Column(mainAxisSize: MainAxisSize.min, children: group),
+        ),
+      );
+      cards.add(const SizedBox(height: 12));
+      group = <Widget>[];
+    }
+
+    for (final child in children) {
+      if (child is Divider) {
+        flushGroup();
+      } else {
+        group.add(child);
+      }
+    }
+    flushGroup();
+    if (cards.isNotEmpty) {
+      cards.removeLast();
+    }
+    return cards;
+  }
+}
+
+class _AboutEncryVaultSection extends StatelessWidget {
+  const _AboutEncryVaultSection();
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Material(
-            color: Theme.of(context).colorScheme.surfaceContainerHighest,
-            borderRadius: BorderRadius.circular(8),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 4),
-              child: Column(children: widget.builder(context, _refresh)),
-            ),
+          Text('EncryVault', style: Theme.of(context).textTheme.titleLarge),
+          const SizedBox(height: 8),
+          const Text(
+            'EncryVault é uma aplicação de cofre digital offline para gestão local de palavras-passe e dados sensíveis.',
+          ),
+          const SizedBox(height: 16),
+          Text(
+            'Marca e direitos',
+            style: Theme.of(context).textTheme.titleSmall,
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'O nome EncryVault, a identidade visual da aplicação, os elementos de marca e a apresentação do produto pertencem aos respetivos autores do projeto. A utilização da marca deve respeitar a identidade da aplicação e não deve sugerir associação, certificação ou autorização sem permissão.',
+          ),
+          const SizedBox(height: 16),
+          Text(
+            'Responsabilidade',
+            style: Theme.of(context).textTheme.titleSmall,
+          ),
+          const SizedBox(height: 8),
+          const Text(
+            'A aplicação é fornecida como ferramenta local de segurança. A proteção final dos dados depende também da palavra-passe mestra, do dispositivo, das cópias de segurança e da forma como o utilizador gere os seus ficheiros.',
           ),
         ],
       ),
     );
   }
+}
+
+class _QuickLinksSettingsSection extends StatelessWidget {
+  final List<QuickLinkPreset> customLinks;
+  final VoidCallback onAdd;
+  final ValueChanged<QuickLinkPreset> onEdit;
+  final ValueChanged<QuickLinkPreset> onDelete;
+
+  const _QuickLinksSettingsSection({
+    required this.customLinks,
+    required this.onAdd,
+    required this.onEdit,
+    required this.onDelete,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = EncryVaultTheme.of(context);
+    if (usesModernQuickLinksSettingsCards(tokens.designMode)) {
+      return _ModernQuickLinksSettingsSection(
+        customLinks: customLinks,
+        onAdd: onAdd,
+        onEdit: onEdit,
+        onDelete: onDelete,
+      );
+    }
+    return _ClassicQuickLinksSettingsSection(
+      customLinks: customLinks,
+      onAdd: onAdd,
+      onEdit: onEdit,
+      onDelete: onDelete,
+    );
+  }
+}
+
+class _ModernQuickLinksSettingsSection extends StatelessWidget {
+  final List<QuickLinkPreset> customLinks;
+  final VoidCallback onAdd;
+  final ValueChanged<QuickLinkPreset> onEdit;
+  final ValueChanged<QuickLinkPreset> onDelete;
+
+  const _ModernQuickLinksSettingsSection({
+    required this.customLinks,
+    required this.onAdd,
+    required this.onEdit,
+    required this.onDelete,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = EncryVaultTheme.of(context);
+    final textTheme = Theme.of(context).textTheme;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        AppSurface(
+          elevated: true,
+          radius: tokens.cardRadius,
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  QuickLinkIconBadge(icon: QuickLinkIcon.key),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Links predefinidos',
+                          style: textTheme.titleSmall?.copyWith(
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                        const SizedBox(height: 3),
+                        Text(
+                          '${defaultQuickLinkPresets.length} serviços disponíveis ao criar entradas.',
+                          style: textTheme.bodySmall?.copyWith(
+                            color: tokens.textSecondary,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 14),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  for (final link in defaultQuickLinkPresets)
+                    Chip(
+                      avatar: Icon(quickLinkIconData(link.icon), size: 16),
+                      label: Text(link.label),
+                    ),
+                ],
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 14),
+        AppSurface(
+          elevated: true,
+          radius: tokens.cardRadius,
+          padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'Links personalizados',
+                      style: textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ),
+                  FilledButton.icon(
+                    onPressed: onAdd,
+                    icon: const Icon(Icons.add_link_outlined, size: 18),
+                    label: const Text('Adicionar'),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              if (customLinks.isEmpty)
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: tokens.surfaceRaised.withValues(
+                      alpha: tokens.isDark ? 0.45 : 0.85,
+                    ),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: tokens.border),
+                  ),
+                  child: Text(
+                    'Ainda não adicionaste links personalizados.',
+                    style: textTheme.bodyMedium,
+                  ),
+                )
+              else
+                for (final link in customLinks)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: tokens.surfaceRaised.withValues(
+                          alpha: tokens.isDark ? 0.45 : 0.85,
+                        ),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: tokens.border),
+                      ),
+                      child: ListTile(
+                        leading: QuickLinkIconBadge(icon: link.icon),
+                        title: Text(link.label),
+                        subtitle: Text(link.url),
+                        trailing: _QuickLinkMenu(
+                          onEdit: () => onEdit(link),
+                          onDelete: () => onDelete(link),
+                        ),
+                      ),
+                    ),
+                  ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ClassicQuickLinksSettingsSection extends StatelessWidget {
+  final List<QuickLinkPreset> customLinks;
+  final VoidCallback onAdd;
+  final ValueChanged<QuickLinkPreset> onEdit;
+  final ValueChanged<QuickLinkPreset> onDelete;
+
+  const _ClassicQuickLinksSettingsSection({
+    required this.customLinks,
+    required this.onAdd,
+    required this.onEdit,
+    required this.onDelete,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Links predefinidos',
+            style: textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w800),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            '${defaultQuickLinkPresets.length} serviços aparecem automaticamente na criação de entradas.',
+            style: textTheme.bodySmall,
+          ),
+          const SizedBox(height: 8),
+          Text(
+            defaultQuickLinkPresets.map((link) => link.label).join(', '),
+            style: textTheme.bodyMedium,
+          ),
+          const Divider(height: 28),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Links personalizados',
+                  style: textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+              TextButton.icon(
+                onPressed: onAdd,
+                icon: const Icon(Icons.add_link_outlined),
+                label: const Text('Adicionar'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          if (customLinks.isEmpty)
+            Text(
+              'Ainda não adicionaste links personalizados.',
+              style: textTheme.bodyMedium,
+            )
+          else
+            for (final link in customLinks)
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: Icon(quickLinkIconData(link.icon)),
+                title: Text(link.label),
+                subtitle: Text(link.url),
+                trailing: _QuickLinkMenu(
+                  onEdit: () => onEdit(link),
+                  onDelete: () => onDelete(link),
+                ),
+              ),
+        ],
+      ),
+    );
+  }
+}
+
+class _QuickLinkMenu extends StatelessWidget {
+  final VoidCallback onEdit;
+  final VoidCallback onDelete;
+
+  const _QuickLinkMenu({required this.onEdit, required this.onDelete});
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = EncryVaultTheme.of(context);
+    if (usesModernQuickLinkMenu(tokens.designMode)) {
+      return IconButton(
+        tooltip: 'Opções',
+        icon: const Icon(Icons.more_horiz_rounded),
+        onPressed: () => _showModernActions(context),
+      );
+    }
+    return PopupMenuButton<String>(
+      tooltip: 'Opções',
+      onSelected: (value) {
+        if (value == 'edit') onEdit();
+        if (value == 'delete') onDelete();
+      },
+      itemBuilder: (context) => const [
+        PopupMenuItem(value: 'edit', child: Text('Editar')),
+        PopupMenuItem(value: 'delete', child: Text('Remover')),
+      ],
+    );
+  }
+
+  Future<void> _showModernActions(BuildContext context) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) {
+        final tokens = EncryVaultTheme.of(sheetContext);
+        return SafeArea(
+          child: Padding(
+            padding: EdgeInsets.fromLTRB(
+              tokens.pagePadding,
+              0,
+              tokens.pagePadding,
+              tokens.pagePadding,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Opções do link',
+                  style: Theme.of(sheetContext).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                AppSurface(
+                  elevated: true,
+                  radius: tokens.cardRadius,
+                  padding: EdgeInsets.zero,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      ListTile(
+                        leading: QuickLinkIconBadge(icon: QuickLinkIcon.code),
+                        title: const Text('Editar'),
+                        subtitle: const Text('Alterar nome, link ou ícone'),
+                        trailing: const Icon(Icons.chevron_right_rounded),
+                        onTap: () {
+                          Navigator.of(sheetContext).pop();
+                          onEdit();
+                        },
+                      ),
+                      const Divider(height: 1),
+                      ListTile(
+                        leading: Container(
+                          width: 34,
+                          height: 34,
+                          decoration: BoxDecoration(
+                            color: Theme.of(
+                              sheetContext,
+                            ).colorScheme.error.withValues(alpha: 0.12),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Icon(
+                            Icons.delete_outline,
+                            color: Theme.of(sheetContext).colorScheme.error,
+                            size: 18,
+                          ),
+                        ),
+                        title: const Text('Remover'),
+                        subtitle: const Text('Apagar dos links personalizados'),
+                        trailing: const Icon(Icons.chevron_right_rounded),
+                        onTap: () {
+                          Navigator.of(sheetContext).pop();
+                          onDelete();
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+bool usesModernSettingsCategoryCards(String title) {
+  return title == 'Segurança' ||
+      title == 'Dados' ||
+      title == 'Aparência' ||
+      title == 'Lixo' ||
+      title == 'Links rápidos' ||
+      title == 'Termos de utilização' ||
+      title == 'Sobre EncryVault';
+}
+
+bool usesModernQuickLinksSettingsCards(AppDesignMode designMode) {
+  return designMode == AppDesignMode.modern;
+}
+
+bool usesModernQuickLinkMenu(AppDesignMode designMode) {
+  return designMode == AppDesignMode.modern;
+}
+
+bool usesModernPasswordHealthDetailsCards(AppDesignMode designMode) {
+  return designMode == AppDesignMode.modern;
 }
 
 class _EmergencyExportDialog extends StatefulWidget {
@@ -1600,6 +2167,15 @@ class _PasswordHealthDashboard extends ConsumerWidget {
       trashRetention: trashRetention,
       ignoredAlertExpiries: ignoredAlertExpiries,
     );
+    final tokens = EncryVaultTheme.of(context);
+    if (tokens.designMode == AppDesignMode.modern) {
+      return _ModernPasswordHealthDashboard(
+        report: report,
+        entries: entries,
+        trashRetention: trashRetention,
+        ignoredAlertExpiries: ignoredAlertExpiries,
+      );
+    }
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1695,6 +2271,398 @@ class _PasswordHealthDashboard extends ConsumerWidget {
   }
 }
 
+class _ModernPasswordHealthDashboard extends StatelessWidget {
+  const _ModernPasswordHealthDashboard({
+    required this.report,
+    required this.entries,
+    required this.trashRetention,
+    required this.ignoredAlertExpiries,
+  });
+
+  final PasswordHealthReport report;
+  final List<VaultEntry> entries;
+  final TrashRetentionOption trashRetention;
+  final Map<String, int> ignoredAlertExpiries;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = EncryVaultTheme.of(context);
+    final items = _modernHealthItems(report);
+    _ModernHealthItem? firstActionable;
+    for (final item in items) {
+      if (item.issue != null && item.value > 0) {
+        firstActionable = item;
+        break;
+      }
+    }
+    final actionItem = firstActionable;
+
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: tokens.background,
+        gradient: tokens.usesSoftGradient
+            ? LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: tokens.isDark
+                    ? const [
+                        Color(0xFF030812),
+                        Color(0xFF081223),
+                        Color(0xFF170D2D),
+                      ]
+                    : [
+                        tokens.background,
+                        tokens.surfaceRaised,
+                        tokens.background,
+                      ],
+              )
+            : null,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Alertas de palavras-passe',
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+              fontSize: 16,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 18),
+          _ModernHealthScoreCard(report: report),
+          const SizedBox(height: 20),
+          for (final item in items) ...[
+            _ModernHealthIssueCard(
+              item: item,
+              onTap: item.issue == null || item.value == 0
+                  ? null
+                  : () => _openHealthIssueDetails(context, item.issue!),
+            ),
+            const SizedBox(height: 14),
+          ],
+          AppSurface(
+            elevated: true,
+            radius: 14,
+            padding: EdgeInsets.zero,
+            child: IgnoredAlertsSection(
+              entries: entries,
+              ignoredAlertExpiries: ignoredAlertExpiries,
+            ),
+          ),
+          const SizedBox(height: 44),
+          DecoratedBox(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(tokens.buttonRadius),
+              gradient: actionItem == null
+                  ? null
+                  : LinearGradient(colors: [tokens.accent, tokens.accentMuted]),
+            ),
+            child: SizedBox(
+              width: double.infinity,
+              height: tokens.buttonHeight,
+              child: ElevatedButton(
+                onPressed: actionItem == null
+                    ? null
+                    : () => _openHealthIssueDetails(context, actionItem.issue!),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: actionItem == null
+                      ? Theme.of(context).disabledColor.withValues(alpha: 0.14)
+                      : Colors.transparent,
+                  foregroundColor: tokens.onAccent,
+                  disabledForegroundColor: tokens.textMuted,
+                  shadowColor: Colors.transparent,
+                  elevation: 0,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(tokens.buttonRadius),
+                  ),
+                ),
+                child: const Text('Ver recomendações'),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _openHealthIssueDetails(
+    BuildContext context,
+    PasswordHealthIssue issue,
+  ) {
+    final affectedEntries = PasswordHealthService.entriesForIssue(
+      entries,
+      issue,
+      trashRetention: trashRetention,
+      ignoredAlertExpiries: ignoredAlertExpiries,
+    );
+    if (affectedEntries.isEmpty) return;
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (context) => _PasswordHealthDetailsPage(
+          title: _healthIssueTitle(issue),
+          issue: issue,
+          entries: affectedEntries,
+          allEntries: entries,
+        ),
+      ),
+    );
+  }
+}
+
+class _ModernHealthScoreCard extends StatelessWidget {
+  const _ModernHealthScoreCard({required this.report});
+
+  final PasswordHealthReport report;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = EncryVaultTheme.of(context);
+    final attentionCount = _attentionCount(report);
+    final score = _healthScore(report);
+
+    return AppSurface(
+      elevated: true,
+      minHeight: 98,
+      radius: 18,
+      padding: const EdgeInsets.fromLTRB(20, 20, 20, 20),
+      child: Row(
+        children: [
+          Text(
+            score.toString(),
+            style: TextStyle(
+              color: tokens.warning,
+              fontSize: 34,
+              height: 1,
+              fontWeight: FontWeight.w900,
+              letterSpacing: 0,
+            ),
+          ),
+          const SizedBox(width: 28),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(
+                  'saúde do cofre',
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  attentionCount == 1
+                      ? '1 ponto precisa de atenção'
+                      : '$attentionCount pontos precisam de atenção',
+                  style: Theme.of(
+                    context,
+                  ).textTheme.bodySmall?.copyWith(fontSize: 12, height: 1.15),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ModernHealthIssueCard extends StatelessWidget {
+  const _ModernHealthIssueCard({required this.item, required this.onTap});
+
+  final _ModernHealthItem item;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = EncryVaultTheme.of(context);
+
+    return AppSurface(
+      elevated: true,
+      minHeight: 60,
+      radius: 14,
+      padding: const EdgeInsets.fromLTRB(16, 12, 14, 12),
+      onTap: onTap,
+      child: Row(
+        children: [
+          Container(
+            width: 30,
+            height: 30,
+            decoration: BoxDecoration(
+              color: item.color.withValues(alpha: 0.16),
+              borderRadius: BorderRadius.circular(15),
+              border: Border.all(color: item.color.withValues(alpha: 0.55)),
+            ),
+            child: Icon(
+              Icons.priority_high_rounded,
+              color: item.color,
+              size: 18,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(
+                  item.label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  item.subtitle,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    fontSize: 12,
+                    color: tokens.textMuted,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (onTap != null)
+            Icon(
+              Icons.chevron_right_rounded,
+              color: tokens.textMuted,
+              size: 20,
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ModernHealthItem {
+  const _ModernHealthItem({
+    required this.label,
+    required this.subtitle,
+    required this.value,
+    required this.color,
+    this.issue,
+  });
+
+  final String label;
+  final String subtitle;
+  final int value;
+  final Color color;
+  final PasswordHealthIssue? issue;
+}
+
+List<_ModernHealthItem> _modernHealthItems(PasswordHealthReport report) {
+  return [
+    _ModernHealthItem(
+      label: 'Palavras-passe fracas',
+      subtitle: _entryCountLabel(report.weak),
+      value: report.weak,
+      color: const Color(0xFFFF6B6B),
+      issue: PasswordHealthIssue.weak,
+    ),
+    _ModernHealthItem(
+      label: 'Palavras-passe reutilizadas',
+      subtitle: _groupCountLabel(report.reusedGroups),
+      value: report.reused,
+      color: const Color(0xFFFFC857),
+      issue: PasswordHealthIssue.reused,
+    ),
+    _ModernHealthItem(
+      label: 'Palavras-passe antigas',
+      subtitle: _entryCountLabel(report.old),
+      value: report.old,
+      color: const Color(0xFF8B5CF6),
+      issue: PasswordHealthIssue.old,
+    ),
+    _ModernHealthItem(
+      label: 'Sem palavra-passe',
+      subtitle: _entryCountLabel(report.empty),
+      value: report.empty,
+      color: const Color(0xFFFF6B6B),
+      issue: PasswordHealthIssue.empty,
+    ),
+    _ModernHealthItem(
+      label: 'Sem categoria/etiqueta',
+      subtitle: _entryCountLabel(report.uncategorized),
+      value: report.uncategorized,
+      color: const Color(0xFF7DB7FF),
+      issue: PasswordHealthIssue.uncategorized,
+    ),
+    _ModernHealthItem(
+      label: 'Nunca abertas',
+      subtitle: _entryCountLabel(report.neverOpened),
+      value: report.neverOpened,
+      color: const Color(0xFF3B82F6),
+      issue: PasswordHealthIssue.neverOpened,
+    ),
+    _ModernHealthItem(
+      label: 'Pouco usadas',
+      subtitle: _entryCountLabel(report.rarelyUsed),
+      value: report.rarelyUsed,
+      color: const Color(0xFF32D5FF),
+      issue: PasswordHealthIssue.rarelyUsed,
+    ),
+    _ModernHealthItem(
+      label: 'Histórico grande',
+      subtitle: _entryCountLabel(report.largeHistory),
+      value: report.largeHistory,
+      color: const Color(0xFF8B5CF6),
+      issue: PasswordHealthIssue.largeHistory,
+    ),
+    _ModernHealthItem(
+      label: 'No Lixo há muito tempo',
+      subtitle: _entryCountLabel(report.oldTrash),
+      value: report.oldTrash,
+      color: const Color(0xFFFFC857),
+      issue: PasswordHealthIssue.oldTrash,
+    ),
+  ];
+}
+
+String _entryCountLabel(int count) {
+  return '$count ${count == 1 ? 'entrada' : 'entradas'}';
+}
+
+String _groupCountLabel(int count) {
+  return '$count ${count == 1 ? 'grupo' : 'grupos'}';
+}
+
+int _attentionCount(PasswordHealthReport report) {
+  return PasswordHealthService.vaultHealthAttentionPoints(report);
+}
+
+int _healthScore(PasswordHealthReport report) {
+  return PasswordHealthService.vaultHealthScore(report);
+}
+
+String _healthIssueTitle(PasswordHealthIssue issue) {
+  switch (issue) {
+    case PasswordHealthIssue.weak:
+      return 'Palavras-passe fracas';
+    case PasswordHealthIssue.reused:
+      return 'Palavras-passe reutilizadas';
+    case PasswordHealthIssue.old:
+      return 'Palavras-passe antigas';
+    case PasswordHealthIssue.empty:
+      return 'Sem palavra-passe';
+    case PasswordHealthIssue.uncategorized:
+      return 'Sem categoria/etiqueta';
+    case PasswordHealthIssue.neverOpened:
+      return 'Nunca abertas';
+    case PasswordHealthIssue.rarelyUsed:
+      return 'Pouco usadas';
+    case PasswordHealthIssue.largeHistory:
+      return 'Histórico grande';
+    case PasswordHealthIssue.oldTrash:
+      return 'No Lixo há muito tempo';
+  }
+}
+
 class _HealthIssueTile extends StatelessWidget {
   final String label;
   final int value;
@@ -1784,12 +2752,19 @@ class _PasswordHealthDetailsPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final tokens = EncryVaultTheme.of(context);
+    final useModernCards = usesModernPasswordHealthDetailsCards(
+      tokens.designMode,
+    );
     return Scaffold(
+      backgroundColor: tokens.background,
       appBar: AppBar(title: Text(title)),
       body: ListView.separated(
-        padding: const EdgeInsets.all(16),
+        padding: EdgeInsets.all(tokens.pagePadding),
         itemCount: entries.length,
-        separatorBuilder: (context, index) => const Divider(height: 1),
+        separatorBuilder: (context, index) => useModernCards
+            ? const SizedBox(height: 12)
+            : const Divider(height: 1),
         itemBuilder: (context, index) {
           final entry = entries[index];
           final reason = PasswordHealthService.reasonForIssue(
@@ -1797,24 +2772,49 @@ class _PasswordHealthDetailsPage extends StatelessWidget {
             entries: allEntries,
             entry: entry,
           );
-          return ListTile(
+          final tile = ListTile(
             contentPadding: EdgeInsets.zero,
-            leading: Icon(
-              Icons.warning_amber_outlined,
-              color: Theme.of(context).colorScheme.error,
+            leading: useModernCards
+                ? VaultCategoryIcon(category: entry.category, size: 42)
+                : Icon(
+                    Icons.warning_amber_outlined,
+                    color: Theme.of(context).colorScheme.error,
+                  ),
+            title: Text(
+              entry.title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: useModernCards
+                  ? Theme.of(context).textTheme.titleSmall?.copyWith(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w800,
+                    )
+                  : null,
             ),
-            title: Text(entry.title),
             subtitle: Text(
               [
                 if (entry.username.isNotEmpty) entry.username,
                 reason,
               ].join('\n'),
+              style: useModernCards
+                  ? Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: tokens.textSecondary,
+                      height: 1.25,
+                    )
+                  : null,
             ),
             isThreeLine: entry.username.isNotEmpty,
             trailing: entry.isDeleted ? null : const Icon(Icons.chevron_right),
             onTap: entry.isDeleted
                 ? null
                 : () => context.push(RouterPaths.vaultEntryView(entry.id)),
+          );
+          if (!useModernCards) return tile;
+          return AppSurface(
+            elevated: true,
+            padding: const EdgeInsets.fromLTRB(14, 6, 10, 6),
+            radius: tokens.cardRadius,
+            child: tile,
           );
         },
       ),

@@ -6,6 +6,7 @@ class VaultConstants {
   static const currentDataVersion = 2;
   static const cipherId = 'xchacha20poly1305-ietf';
   static const kdfId = 'argon2id';
+  static const ignoredAlertNoExpiryValue = -1;
 }
 
 class PrefsKeys {
@@ -15,6 +16,7 @@ class PrefsKeys {
   static const unlockFailedCount = 'unlockFailedCount';
   static const unlockLockUntilEpochMs = 'unlockLockUntilEpochMs';
   static const vaultSortMode = 'vaultSortMode';
+  static const appDesignMode = 'appDesignMode';
   static const appThemeMode = 'appThemeMode';
   static const trashRetention = 'trashRetention';
   static const requireSensitiveActionConfirmation =
@@ -26,4 +28,5 @@ class PrefsKeys {
   static const ignoredEntryAlertExpiries = 'ignoredEntryAlertExpiries';
   static const tagDisplayMode = 'tagDisplayMode';
   static const exposedHomeTagKeys = 'exposedHomeTagKeys';
+  static const customQuickLinks = 'customQuickLinks';
 }

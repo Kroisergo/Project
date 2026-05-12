@@ -1,6 +1,7 @@
 import 'package:password_strength_checker/password_strength_checker.dart';
 
 import '../../models/vault_entry.dart';
+import '../../utils/constants.dart';
 import '../vault/trash_retention_policy.dart';
 import 'password_entry_recommendation.dart';
 
@@ -201,6 +202,19 @@ class PasswordHealthService {
     );
   }
 
+  static int vaultHealthScore(PasswordHealthReport report) {
+    final penalty = report.weak * 8 + report.old * 4 + report.empty * 10;
+    return (100 - penalty).clamp(0, 100).toInt();
+  }
+
+  static int vaultHealthAttentionPoints(PasswordHealthReport report) {
+    var points = 0;
+    if (report.weak > 0) points++;
+    if (report.old > 0) points++;
+    if (report.empty > 0) points++;
+    return points;
+  }
+
   static List<VaultEntry> entriesForIssue(
     List<VaultEntry> entries,
     PasswordHealthIssue issue, {
@@ -329,6 +343,7 @@ class PasswordHealthService {
     final expiry =
         ignoredAlertExpiries[alertIgnoreKey(entryId: entry.id, issue: issue)];
     if (expiry == null) return false;
+    if (expiry == VaultConstants.ignoredAlertNoExpiryValue) return true;
     final reference = (now ?? DateTime.now()).toUtc().millisecondsSinceEpoch;
     return expiry > reference;
   }

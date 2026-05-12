@@ -45,19 +45,7 @@ class _TermsPageState extends ConsumerState<TermsPage> {
                     padding: const EdgeInsets.only(right: 12, bottom: 16),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'EncryVault é uma aplicação sem ligação à internet para gestão local de dados sensíveis. Antes de continuares, deves ler e aceitar estes Termos de utilização. Ao usares a aplicação, reconheces que a segurança prática do teu cofre depende também da forma como escolhes, guardas e proteges as tuas credenciais, exportações, cópias de segurança e dispositivo.',
-                          style: Theme.of(context).textTheme.bodyLarge,
-                        ),
-                        const SizedBox(height: 16),
-                        const _RiskWarningsPanel(),
-                        const SizedBox(height: 16),
-                        Text(
-                          _termsText,
-                          style: Theme.of(context).textTheme.bodyMedium,
-                        ),
-                      ],
+                      children: [const TermsContent()],
                     ),
                   ),
                 ),
@@ -87,6 +75,27 @@ class _TermsPageState extends ConsumerState<TermsPage> {
           ),
         ),
       ),
+    );
+  }
+}
+
+class TermsContent extends StatelessWidget {
+  const TermsContent({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'EncryVault é uma aplicação sem ligação à internet para gestão local de dados sensíveis. Antes de continuares, deves ler e aceitar estes Termos de utilização. Ao usares a aplicação, reconheces que a segurança prática do teu cofre depende também da forma como escolhes, guardas e proteges as tuas credenciais, exportações, cópias de segurança e dispositivo.',
+          style: Theme.of(context).textTheme.bodyLarge,
+        ),
+        const SizedBox(height: 16),
+        const _RiskWarningsPanel(),
+        const SizedBox(height: 16),
+        Text(_termsText, style: Theme.of(context).textTheme.bodyMedium),
+      ],
     );
   }
 }

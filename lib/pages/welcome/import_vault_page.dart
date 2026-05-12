@@ -4,11 +4,14 @@ import 'package:go_router/go_router.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
+import '../../config/theme/design_tokens.dart';
+import '../../models/app_design_mode.dart';
 import '../../services/storage/preferences_service.dart';
 import '../../services/storage/vault_file_service.dart';
 import '../../services/theme/theme_mode_controller.dart';
 import '../../services/vault/vault_state.dart';
 import '../../utils/constants.dart';
+import '../../widgets/theme_mode_card_selector.dart';
 import '../unlock/unlock_page.dart';
 import '../welcome/welcome_page.dart';
 
@@ -90,6 +93,9 @@ class _ImportVaultPageState extends ConsumerState<ImportVaultPage> {
 
   @override
   Widget build(BuildContext context) {
+    final tokens = EncryVaultTheme.of(context);
+    final useModernThemeCards = usesModernPreVaultThemeCards(tokens.designMode);
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Configurar'),
@@ -145,42 +151,56 @@ class _ImportVaultPageState extends ConsumerState<ImportVaultPage> {
               ),
             ),
             const SizedBox(height: 16),
-            Material(
-              color: Theme.of(context).colorScheme.surfaceContainerHighest,
-              borderRadius: BorderRadius.circular(8),
-              child: ListTile(
-                leading: const Icon(Icons.palette_outlined),
-                title: const Text('Tema'),
-                subtitle: const Text(
-                  'Modo claro, escuro ou definido pelo sistema',
-                ),
-                trailing: DropdownButton<ThemeMode>(
-                  value: _themeMode,
-                  items: const [
-                    DropdownMenuItem(
-                      value: ThemeMode.system,
-                      child: Text('Sistema'),
+            useModernThemeCards
+                ? ThemeModeCardSelector(
+                    selected: _themeMode,
+                    enabled: !_busy,
+                    onChanged: _updateThemeMode,
+                  )
+                : Material(
+                    color: Theme.of(
+                      context,
+                    ).colorScheme.surfaceContainerHighest,
+                    borderRadius: BorderRadius.circular(8),
+                    child: ListTile(
+                      leading: const Icon(Icons.palette_outlined),
+                      title: const Text('Tema'),
+                      subtitle: const Text(
+                        'Modo claro, escuro ou definido pelo sistema',
+                      ),
+                      trailing: DropdownButton<ThemeMode>(
+                        value: _themeMode,
+                        items: const [
+                          DropdownMenuItem(
+                            value: ThemeMode.system,
+                            child: Text('Sistema'),
+                          ),
+                          DropdownMenuItem(
+                            value: ThemeMode.light,
+                            child: Text('Claro'),
+                          ),
+                          DropdownMenuItem(
+                            value: ThemeMode.dark,
+                            child: Text('Escuro'),
+                          ),
+                        ],
+                        onChanged: _busy
+                            ? null
+                            : (mode) async {
+                                await _updateThemeMode(
+                                  mode ?? ThemeMode.system,
+                                );
+                              },
+                      ),
                     ),
-                    DropdownMenuItem(
-                      value: ThemeMode.light,
-                      child: Text('Claro'),
-                    ),
-                    DropdownMenuItem(
-                      value: ThemeMode.dark,
-                      child: Text('Escuro'),
-                    ),
-                  ],
-                  onChanged: _busy
-                      ? null
-                      : (mode) async {
-                          await _updateThemeMode(mode ?? ThemeMode.system);
-                        },
-                ),
-              ),
-            ),
+                  ),
           ],
         ),
       ),
     );
   }
+}
+
+bool usesModernPreVaultThemeCards(AppDesignMode designMode) {
+  return usesModernThemeModeCards(designMode);
 }

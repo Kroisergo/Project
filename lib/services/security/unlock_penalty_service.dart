@@ -6,9 +6,7 @@ import '../storage/preferences_service.dart';
 import 'unlock_penalty_state.dart';
 
 class UnlockPenaltyService {
-  UnlockPenaltyService({
-    required this.preferencesService,
-  });
+  UnlockPenaltyService({required this.preferencesService});
 
   final PreferencesService preferencesService;
   Future<void> _queue = Future<void>.value();
@@ -17,7 +15,9 @@ class UnlockPenaltyService {
     return _enqueue(() async {
       final currentNow = (now ?? DateTime.now()).toUtc();
       var failedCount = await preferencesService.getUnlockFailedCount();
-      DateTime? lockUntil = _readLockUntil(await preferencesService.getUnlockLockUntilEpochMs());
+      DateTime? lockUntil = _readLockUntil(
+        await preferencesService.getUnlockLockUntilEpochMs(),
+      );
 
       if (failedCount < 0) {
         failedCount = 0;
@@ -29,7 +29,9 @@ class UnlockPenaltyService {
         await preferencesService.setUnlockLockUntilEpochMs(null);
       }
 
-      final remaining = lockUntil == null ? Duration.zero : lockUntil.difference(currentNow);
+      final remaining = lockUntil == null
+          ? Duration.zero
+          : lockUntil.difference(currentNow);
       return UnlockPenaltyState(
         failedCount: failedCount,
         lockUntil: lockUntil,
@@ -49,9 +51,13 @@ class UnlockPenaltyService {
         final minutes = _penaltyMinutesForFailureCount(nextCount);
         lockUntil = currentNow.add(Duration(minutes: minutes));
       }
-      await preferencesService.setUnlockLockUntilEpochMs(lockUntil?.millisecondsSinceEpoch);
+      await preferencesService.setUnlockLockUntilEpochMs(
+        lockUntil?.millisecondsSinceEpoch,
+      );
 
-      final remaining = lockUntil == null ? Duration.zero : lockUntil.difference(currentNow);
+      final remaining = lockUntil == null
+          ? Duration.zero
+          : lockUntil.difference(currentNow);
       return UnlockPenaltyState(
         failedCount: nextCount,
         lockUntil: lockUntil,

@@ -1,17 +1,29 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../utils/constants.dart';
 import '../storage/preferences_service.dart';
 
 class IgnoredAlertDurationOption {
   final String label;
-  final Duration duration;
+  final Duration? duration;
 
   const IgnoredAlertDurationOption({
     required this.label,
     required this.duration,
   });
 
-  DateTime expiresAt(DateTime now) => now.toUtc().add(duration);
+  bool get hasExpiry => duration != null;
+
+  String get confirmationMessage {
+    if (!hasExpiry) return 'Aviso ignorado até ativar novamente.';
+    return 'Aviso ignorado por $label.';
+  }
+
+  int expiryValue(DateTime now) {
+    final duration = this.duration;
+    if (duration == null) return VaultConstants.ignoredAlertNoExpiryValue;
+    return now.toUtc().add(duration).millisecondsSinceEpoch;
+  }
 
   static const values = [
     IgnoredAlertDurationOption(label: '1 hora', duration: Duration(hours: 1)),
@@ -25,6 +37,7 @@ class IgnoredAlertDurationOption {
     // finais de mes, anos bissextos e mudancas de calendario.
     IgnoredAlertDurationOption(label: '1 mês', duration: Duration(days: 30)),
     IgnoredAlertDurationOption(label: '3 meses', duration: Duration(days: 90)),
+    IgnoredAlertDurationOption(label: 'Até ativar novamente', duration: null),
   ];
 }
 
@@ -38,6 +51,7 @@ class IgnoredAlertExpiries {
   }) {
     final expiry = expiries[key];
     if (expiry == null) return false;
+    if (expiry == VaultConstants.ignoredAlertNoExpiryValue) return true;
     final reference = (now ?? DateTime.now()).toUtc().millisecondsSinceEpoch;
     return expiry > reference;
   }
@@ -47,8 +61,11 @@ class IgnoredAlertExpiries {
     DateTime? now,
   }) {
     final reference = (now ?? DateTime.now()).toUtc().millisecondsSinceEpoch;
-    return Map<String, int>.from(expiries)
-      ..removeWhere((_, expiry) => expiry <= reference);
+    return Map<String, int>.from(expiries)..removeWhere(
+      (_, expiry) =>
+          expiry != VaultConstants.ignoredAlertNoExpiryValue &&
+          expiry <= reference,
+    );
   }
 }
 
@@ -77,8 +94,8 @@ class IgnoredEntryAlertsController
   }) async {
     final current = state.valueOrNull ?? {};
     final cleaned = IgnoredAlertExpiries.removeExpired(current, now: now);
-    final expiry = duration.expiresAt(now ?? DateTime.now());
-    final updated = {...cleaned, key: expiry.toUtc().millisecondsSinceEpoch};
+    final expiry = duration.expiryValue(now ?? DateTime.now());
+    final updated = {...cleaned, key: expiry};
     await _preferences.setIgnoredEntryAlertExpiries(updated);
     state = AsyncValue.data(updated);
   }

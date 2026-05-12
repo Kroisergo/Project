@@ -25,9 +25,50 @@ class CryptoService {
     required Uint8List salt,
     required CryptoParams params,
   }) {
+    return _deriveKey(
+      sodium: sodium,
+      masterPassword: masterPassword,
+      salt: salt,
+      memLimit: params.memLimit,
+      opsLimit: params.opsLimit,
+      parallelism: params.parallelism,
+    );
+  }
+
+  Future<SecureKey> deriveKeyInBackground({
+    required SodiumSumo sodium,
+    required String masterPassword,
+    required Uint8List salt,
+    required CryptoParams params,
+  }) async {
+    final saltCopy = Uint8List.fromList(salt);
+    final memLimit = params.memLimit;
+    final opsLimit = params.opsLimit;
+    final parallelism = params.parallelism;
+
+    return sodium.runIsolated((_, _) {
+      return _deriveKey(
+        sodium: sodium,
+        masterPassword: masterPassword,
+        salt: saltCopy,
+        memLimit: memLimit,
+        opsLimit: opsLimit,
+        parallelism: parallelism,
+      );
+    });
+  }
+
+  static SecureKey _deriveKey({
+    required SodiumSumo sodium,
+    required String masterPassword,
+    required Uint8List salt,
+    required int memLimit,
+    required int opsLimit,
+    required int parallelism,
+  }) {
     final masterBytes = Int8List.fromList(utf8.encode(masterPassword));
     final pwhash = sodium.crypto.pwhash;
-    final opsLimit = (params.opsLimit * params.parallelism).clamp(
+    final effectiveOpsLimit = (opsLimit * parallelism).clamp(
       pwhash.opsLimitMin,
       pwhash.opsLimitMax,
     );
@@ -36,8 +77,8 @@ class CryptoService {
         outLen: sodium.crypto.aeadXChaCha20Poly1305IETF.keyBytes,
         password: masterBytes,
         salt: salt,
-        opsLimit: opsLimit,
-        memLimit: params.memLimit,
+        opsLimit: effectiveOpsLimit,
+        memLimit: memLimit,
         alg: CryptoPwhashAlgorithm.argon2id13,
       );
     } finally {

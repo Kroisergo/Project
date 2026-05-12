@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../models/vault_entry.dart';
 import '../../../services/security/ignored_alerts_controller.dart';
 import '../../../services/security/password_health_service.dart';
+import '../../../utils/constants.dart';
 import '../../../utils/time_labels.dart';
 
 class IgnoredAlertsSection extends ConsumerWidget {
@@ -38,9 +39,7 @@ class IgnoredAlertsSection extends ConsumerWidget {
           ListTile(
             dense: true,
             title: Text(item.entry.title),
-            subtitle: Text(
-              '${item.alert.message}\nIgnorado até ${formatDateTime(item.expiresAt)}',
-            ),
+            subtitle: Text('${item.alert.message}\n${item.expiryLabel}'),
             isThreeLine: true,
             trailing: PopupMenuButton<_IgnoredAlertAction>(
               tooltip: 'Gerir aviso ignorado',
@@ -89,15 +88,11 @@ class IgnoredAlertsSection extends ConsumerWidget {
         final expiry = cleaned[alert.ignoreKey];
         if (expiry == null) continue;
         items.add(
-          _IgnoredAlertItem(
-            entry: entry,
-            alert: alert,
-            expiresAt: DateTime.fromMillisecondsSinceEpoch(expiry, isUtc: true),
-          ),
+          _IgnoredAlertItem(entry: entry, alert: alert, expiry: expiry),
         );
       }
     }
-    items.sort((a, b) => a.expiresAt.compareTo(b.expiresAt));
+    items.sort((a, b) => a.sortValue.compareTo(b.sortValue));
     return items;
   }
 
@@ -124,22 +119,36 @@ class IgnoredAlertsSection extends ConsumerWidget {
         .read(ignoredEntryAlertsProvider.notifier)
         .ignore(item.alert.ignoreKey, duration);
     if (!context.mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Aviso ignorado por ${duration.label}.')),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(duration.confirmationMessage)));
   }
 }
 
 class _IgnoredAlertItem {
   final VaultEntry entry;
   final PasswordHealthEntryAlert alert;
-  final DateTime expiresAt;
+  final int expiry;
 
   const _IgnoredAlertItem({
     required this.entry,
     required this.alert,
-    required this.expiresAt,
+    required this.expiry,
   });
+
+  bool get hasExpiry => expiry != VaultConstants.ignoredAlertNoExpiryValue;
+
+  DateTime? get expiresAt => hasExpiry
+      ? DateTime.fromMillisecondsSinceEpoch(expiry, isUtc: true)
+      : null;
+
+  int get sortValue => hasExpiry ? expiry : 9223372036854775807;
+
+  String get expiryLabel {
+    final expiresAt = this.expiresAt;
+    if (expiresAt == null) return 'Até ativar novamente';
+    return 'Ignorado até ${formatDateTime(expiresAt)}';
+  }
 }
 
 enum _IgnoredAlertAction { changeDuration, remove }

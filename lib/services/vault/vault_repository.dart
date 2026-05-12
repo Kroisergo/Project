@@ -97,7 +97,7 @@ class VaultRepository {
       parallelism: header.parallelism,
     );
 
-    final key = cryptoService.deriveKey(
+    final key = await cryptoService.deriveKeyInBackground(
       sodium: sodium,
       masterPassword: masterPassword,
       salt: salt,
@@ -233,7 +233,7 @@ class VaultRepository {
       sodium,
       sodium.crypto.aeadXChaCha20Poly1305IETF.nonceBytes,
     );
-    final newKey = cryptoService.deriveKey(
+    final newKey = await cryptoService.deriveKeyInBackground(
       sodium: sodium,
       masterPassword: newPassword,
       salt: salt,

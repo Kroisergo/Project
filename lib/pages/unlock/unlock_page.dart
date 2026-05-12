@@ -4,11 +4,16 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../config/theme/design_tokens.dart';
+import '../../models/app_design_mode.dart';
 import '../../services/security/unlock_penalty_service.dart';
 import '../../services/security/unlock_penalty_state.dart';
 import '../../services/storage/preferences_service.dart';
 import '../../services/vault/vault_repository.dart';
 import '../../services/vault/vault_state.dart';
+import '../../widgets/app_brand_mark.dart';
+import '../../widgets/app_surface.dart';
+import '../../widgets/vault_operation_loading_overlay.dart';
 import '../vault_home/vault_home_page.dart';
 import 'unlock_form.dart';
 
@@ -26,6 +31,7 @@ class _UnlockPageState extends ConsumerState<UnlockPage> {
   UnlockPenaltyState _penalty = UnlockPenaltyState.empty;
   Timer? _countdownTicker;
   bool _loadingStatus = true;
+  bool _unlocking = false;
 
   @override
   void initState() {
@@ -119,30 +125,86 @@ class _UnlockPageState extends ConsumerState<UnlockPage> {
   @override
   Widget build(BuildContext context) {
     final isLocked = _penalty.isLocked || _loadingStatus;
+    final tokens = EncryVaultTheme.of(context);
+    final isClassic = tokens.designMode == AppDesignMode.classic;
 
     return Scaffold(
       appBar: AppBar(title: const Text('Desbloquear cofre')),
-      body: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Introduz a palavra-passe mestra para abrir o cofre.',
-              style: Theme.of(context).textTheme.bodyLarge,
+      backgroundColor: tokens.background,
+      body: Stack(
+        children: [
+          DecoratedBox(
+            decoration: BoxDecoration(
+              color: tokens.background,
+              gradient: tokens.usesSoftGradient
+                  ? LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: tokens.isDark
+                          ? const [
+                              Color(0xFF030812),
+                              Color(0xFF081223),
+                              Color(0xFF170D2D),
+                            ]
+                          : [
+                              tokens.background,
+                              tokens.surfaceRaised,
+                              tokens.background,
+                            ],
+                    )
+                  : null,
             ),
-            const SizedBox(height: 8),
-            if (_penalty.isLocked)
-              Text(
-                'Bloqueado por tentativas falhadas. Tenta novamente em ${_formatDuration(_penalty.remaining)}.',
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: Theme.of(context).colorScheme.error,
-                ),
+            child: SingleChildScrollView(
+              padding: EdgeInsets.symmetric(horizontal: tokens.pagePadding + 4),
+              child: Column(
+                children: [
+                  SizedBox(height: isClassic ? 64 : 48),
+                  AppBrandMark(size: isClassic ? 72 : 104),
+                  SizedBox(height: isClassic ? 44 : 36),
+                  Text(
+                    isClassic ? 'Entrar no cofre' : 'Abrir cofre pessoal',
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                      fontSize: isClassic ? 26 : 26,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                  Text(
+                    isClassic
+                        ? 'Introduz a palavra-passe mestra para aceder ao cofre offline.'
+                        : 'Introduz a palavra-passe mestra. A app bloqueia após tentativas falhadas.',
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      fontSize: 14,
+                      height: 1.45,
+                    ),
+                  ),
+                  SizedBox(height: isClassic ? 60 : 58),
+                  UnlockForm(
+                    onUnlock: _onUnlock,
+                    enabled: !isLocked,
+                    buttonLabel: 'Entrar',
+                    onLoadingChanged: (loading) {
+                      if (!mounted) return;
+                      setState(() => _unlocking = loading);
+                    },
+                    middle: _UnlockNotice(
+                      locked: _penalty.isLocked,
+                      formattedRemaining: _formatDuration(_penalty.remaining),
+                    ),
+                  ),
+                  const SizedBox(height: 32),
+                ],
               ),
-            const SizedBox(height: 20),
-            UnlockForm(onUnlock: _onUnlock, enabled: !isLocked),
-          ],
-        ),
+            ),
+          ),
+          if (_unlocking)
+            const VaultOperationLoadingOverlay(
+              title: 'A desbloquear cofre',
+              message: 'A verificar a palavra-passe e a decifrar os dados.',
+            ),
+        ],
       ),
     );
   }
@@ -163,5 +225,77 @@ class _UnlockPageState extends ConsumerState<UnlockPage> {
     ScaffoldMessenger.of(
       context,
     ).showSnackBar(SnackBar(content: Text(message)));
+  }
+}
+
+class _UnlockNotice extends StatelessWidget {
+  const _UnlockNotice({required this.locked, required this.formattedRemaining});
+
+  final bool locked;
+  final String formattedRemaining;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = EncryVaultTheme.of(context);
+    final isClassic = tokens.designMode == AppDesignMode.classic;
+    final color = locked ? tokens.danger : tokens.warning;
+
+    return AppSurface(
+      elevated: !isClassic,
+      minHeight: isClassic ? 76 : 74,
+      radius: isClassic ? 10 : 18,
+      padding: EdgeInsets.fromLTRB(isClassic ? 20 : 18, 14, 18, 14),
+      leadingAccentColor: isClassic ? color : null,
+      leadingAccentWidth: isClassic ? 3 : 0,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          if (!isClassic) ...[
+            Container(
+              width: 32,
+              height: 32,
+              decoration: BoxDecoration(
+                color: color.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: color.withValues(alpha: 0.5)),
+              ),
+              child: Icon(
+                locked ? Icons.lock_clock_outlined : Icons.priority_high,
+                size: 18,
+                color: color,
+              ),
+            ),
+            const SizedBox(width: 12),
+          ],
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  locked
+                      ? 'Bloqueado por tentativas falhadas'
+                      : isClassic
+                      ? 'Proteção contra tentativas falhadas'
+                      : 'Proteção contra força bruta ativa',
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                    color: tokens.textPrimary,
+                    fontSize: 14,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  locked
+                      ? 'Tenta novamente em $formattedRemaining.'
+                      : 'Tentativas excessivas aplicam espera temporária.',
+                  style: Theme.of(
+                    context,
+                  ).textTheme.bodySmall?.copyWith(fontSize: 12.5),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }

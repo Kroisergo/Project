@@ -8,6 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sodium/sodium_sumo.dart';
 
+import 'package:encryvault/services/crypto/crypto_params.dart';
 import 'package:encryvault/services/crypto/crypto_service.dart';
 import 'package:encryvault/services/crypto/sodium_provider.dart';
 import 'package:encryvault/services/security/trash_pin_service.dart';
@@ -72,6 +73,36 @@ void main() {
 
     expect(recovered, plaintext);
     key.dispose();
+  });
+
+  test('CryptoService derives equivalent keys in background', () async {
+    if (!sodiumReady) return;
+    final crypto = CryptoService();
+    final params = CryptoParams(
+      memLimit: sodium.crypto.pwhash.memLimitInteractive,
+      opsLimit: sodium.crypto.pwhash.opsLimitInteractive,
+      parallelism: 1,
+    );
+    final salt = Uint8List.fromList(
+      List<int>.generate(sodium.crypto.pwhash.saltBytes, (index) => index),
+    );
+
+    final foregroundKey = crypto.deriveKey(
+      sodium: sodium,
+      masterPassword: 'background-derivation-password',
+      salt: salt,
+      params: params,
+    );
+    final backgroundKey = await crypto.deriveKeyInBackground(
+      sodium: sodium,
+      masterPassword: 'background-derivation-password',
+      salt: salt,
+      params: params,
+    );
+
+    expect(backgroundKey.extractBytes(), foregroundKey.extractBytes());
+    foregroundKey.dispose();
+    backgroundKey.dispose();
   });
 
   test('Trash PIN stores a sodium hash and verifies valid PIN only', () async {

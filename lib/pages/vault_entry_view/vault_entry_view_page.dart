@@ -5,6 +5,8 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../config/theme/design_tokens.dart';
+import '../../models/app_design_mode.dart';
 import '../../models/vault_entry.dart';
 import '../../services/security/ignored_alerts_controller.dart';
 import '../../services/security/password_entry_recommendation.dart';
@@ -14,7 +16,9 @@ import '../../services/vault/auto_lock_controller.dart';
 import '../../services/vault/vault_state.dart';
 import '../../utils/router_paths.dart';
 import '../../utils/time_labels.dart';
+import '../../widgets/app_surface.dart';
 import '../../widgets/sensitive_action_confirmation.dart';
+import '../../widgets/vault_category_icon.dart';
 import '../unlock/unlock_page.dart';
 import '../vault_home/vault_home_page.dart';
 
@@ -220,9 +224,9 @@ class _VaultEntryViewPageState extends ConsumerState<VaultEntryViewPage>
         .read(ignoredEntryAlertsProvider.notifier)
         .ignore(alert.ignoreKey, duration);
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Alerta ignorado por ${duration.label}.')),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(duration.confirmationMessage)));
   }
 
   void _onLocked() {
@@ -282,6 +286,8 @@ class _VaultEntryViewPageState extends ConsumerState<VaultEntryViewPage>
 
   @override
   Widget build(BuildContext context) {
+    final tokens = EncryVaultTheme.of(context);
+    final isClassic = tokens.designMode == AppDesignMode.classic;
     final vault = ref.watch(vaultProvider);
     final activeEntries = vault.data?.activeEntries ?? [];
     final entry = _findEntry(activeEntries);
@@ -336,6 +342,7 @@ class _VaultEntryViewPageState extends ConsumerState<VaultEntryViewPage>
           ];
 
     return Scaffold(
+      backgroundColor: tokens.background,
       appBar: AppBar(title: const Text('Entrada'), actions: actions),
       body: GestureDetector(
         behavior: HitTestBehavior.opaque,
@@ -343,14 +350,22 @@ class _VaultEntryViewPageState extends ConsumerState<VaultEntryViewPage>
         onPanDown: (_) => _autoLock.restart(),
         child: entry == null
             ? const Center(child: Text('Entrada não encontrada.'))
-            : Padding(
-                padding: const EdgeInsets.all(16),
+            : SingleChildScrollView(
+                padding: EdgeInsets.all(tokens.pagePadding),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
+                        if (!isClassic) ...[
+                          VaultCategoryIcon(
+                            category: entry.category,
+                            size: 58,
+                            iconSize: 24,
+                          ),
+                          const SizedBox(width: 14),
+                        ],
                         Expanded(
                           child: Text(
                             entry.title,
@@ -382,6 +397,50 @@ class _VaultEntryViewPageState extends ConsumerState<VaultEntryViewPage>
                           ),
                       ],
                     ),
+                    if (visibleAlerts.isNotEmpty) ...[
+                      const SizedBox(height: 16),
+                      AppSurface(
+                        elevated: !isClassic,
+                        minHeight: isClassic ? 76 : 72,
+                        radius: isClassic ? 10 : tokens.cardRadius,
+                        padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+                        leadingAccentColor: isClassic ? tokens.warning : null,
+                        leadingAccentWidth: isClassic ? 3 : 0,
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            if (!isClassic) ...[
+                              Icon(
+                                Icons.warning_amber_rounded,
+                                color: tokens.warning,
+                                size: 22,
+                              ),
+                              const SizedBox(width: 12),
+                            ],
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'Alerta de segurança',
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .titleSmall
+                                        ?.copyWith(fontSize: 14),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    visibleAlerts.first.message,
+                                    style: Theme.of(context).textTheme.bodySmall
+                                        ?.copyWith(fontSize: 12.5),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                     const SizedBox(height: 16),
                     _fieldRow(
                       'Utilizador',
@@ -419,68 +478,82 @@ class _VaultEntryViewPageState extends ConsumerState<VaultEntryViewPage>
   }
 
   Widget _fieldRow(String label, String value, {VoidCallback? onCopy}) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(label, style: Theme.of(context).textTheme.labelMedium),
-              const SizedBox(height: 4),
-              Text(value, style: Theme.of(context).textTheme.bodyLarge),
-            ],
+    final tokens = EncryVaultTheme.of(context);
+    return AppSurface(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      radius: tokens.inputRadius,
+      minHeight: 62,
+      backgroundColor: tokens.inputFill,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(label, style: Theme.of(context).textTheme.labelMedium),
+                const SizedBox(height: 4),
+                Text(value, style: Theme.of(context).textTheme.bodyLarge),
+              ],
+            ),
           ),
-        ),
-        if (onCopy != null)
-          IconButton(icon: const Icon(Icons.copy), onPressed: onCopy),
-      ],
+          if (onCopy != null)
+            IconButton(icon: const Icon(Icons.copy), onPressed: onCopy),
+        ],
+      ),
     );
   }
 
   Widget _notesRow(String value, {VoidCallback? onCopy}) {
     final hasNotes = value.trim().isNotEmpty;
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('Notas', style: Theme.of(context).textTheme.labelMedium),
-              const SizedBox(height: 4),
-              Text(
-                !hasNotes
-                    ? 'Sem notas.'
-                    : _notesRevealed
-                    ? value
-                    : 'Notas ocultas',
-                style: Theme.of(context).textTheme.bodyLarge,
-              ),
-              if (hasNotes && !_notesRevealed)
+    final tokens = EncryVaultTheme.of(context);
+    return AppSurface(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      radius: tokens.inputRadius,
+      minHeight: 86,
+      backgroundColor: tokens.inputFill,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Notas', style: Theme.of(context).textTheme.labelMedium),
+                const SizedBox(height: 4),
                 Text(
-                  'Revela durante 5 segundos.',
-                  style: Theme.of(context).textTheme.bodySmall,
+                  !hasNotes
+                      ? 'Sem notas.'
+                      : _notesRevealed
+                      ? value
+                      : 'Notas ocultas',
+                  style: Theme.of(context).textTheme.bodyLarge,
                 ),
-            ],
-          ),
-        ),
-        if (hasNotes)
-          TextButton.icon(
-            onPressed: _notesRevealed
-                ? () {
-                    _notesRevealTimer?.cancel();
-                    setState(() => _notesRevealed = false);
-                  }
-                : _revealNotesTemporarily,
-            icon: Icon(
-              _notesRevealed ? Icons.visibility_off : Icons.visibility,
+                if (hasNotes && !_notesRevealed)
+                  Text(
+                    'Revela durante 5 segundos.',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+              ],
             ),
-            label: Text(_notesRevealed ? 'Ocultar' : 'Revelar'),
           ),
-        if (onCopy != null)
-          IconButton(icon: const Icon(Icons.copy), onPressed: onCopy),
-      ],
+          if (hasNotes)
+            TextButton.icon(
+              onPressed: _notesRevealed
+                  ? () {
+                      _notesRevealTimer?.cancel();
+                      setState(() => _notesRevealed = false);
+                    }
+                  : _revealNotesTemporarily,
+              icon: Icon(
+                _notesRevealed ? Icons.visibility_off : Icons.visibility,
+              ),
+              label: Text(_notesRevealed ? 'Ocultar' : 'Revelar'),
+            ),
+          if (onCopy != null)
+            IconButton(icon: const Icon(Icons.copy), onPressed: onCopy),
+        ],
+      ),
     );
   }
 }

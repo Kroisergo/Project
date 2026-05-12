@@ -7,10 +7,7 @@ class BootstrapResult {
   final bool termsAccepted;
   final bool hasVault;
 
-  const BootstrapResult({
-    required this.termsAccepted,
-    required this.hasVault,
-  });
+  const BootstrapResult({required this.termsAccepted, required this.hasVault});
 }
 
 class BootstrapService {
@@ -25,11 +22,10 @@ class BootstrapService {
   Future<BootstrapResult> check() async {
     final termsAccepted = await preferencesService.isTermsAccepted();
     final preferredName = await preferencesService.getVaultFileName();
-    final hasVault = await vaultFileService.hasExistingVault(preferredName: preferredName);
-    return BootstrapResult(
-      termsAccepted: termsAccepted,
-      hasVault: hasVault,
+    final hasVault = await vaultFileService.hasExistingVault(
+      preferredName: preferredName,
     );
+    return BootstrapResult(termsAccepted: termsAccepted, hasVault: hasVault);
   }
 }
 

@@ -9,7 +9,7 @@ import '../../services/storage/vault_file_service.dart';
 import '../../services/vault/vault_service.dart';
 import '../../widgets/password_generator_options.dart';
 import '../../widgets/password_policy_status.dart';
-import '../unlock/unlock_page.dart';
+import '../../widgets/vault_operation_loading_overlay.dart';
 import '../welcome/welcome_page.dart';
 
 class CreateMasterPage extends ConsumerStatefulWidget {
@@ -66,6 +66,7 @@ class _CreateMasterPageState extends ConsumerState<CreateMasterPage> {
     if (form == null || !form.validate()) return;
 
     setState(() => _loading = true);
+    await WidgetsBinding.instance.endOfFrame;
     try {
       final vaultService = ref.read(vaultServiceProvider);
       final fileService = VaultFileService();
@@ -87,7 +88,7 @@ class _CreateMasterPageState extends ConsumerState<CreateMasterPage> {
       );
       _masterController.clear();
       _confirmController.clear();
-      context.go(UnlockPage.routePath);
+      context.go(WelcomePage.routePath);
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(
@@ -108,90 +109,100 @@ class _CreateMasterPageState extends ConsumerState<CreateMasterPage> {
         title: const Text('Criar palavra-passe mestra'),
         leading: BackButton(onPressed: () => context.go(WelcomePage.routePath)),
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(20),
-        child: Form(
-          key: _formKey,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Define a tua palavra-passe mestra para cifrar todo o cofre.',
-                style: Theme.of(context).textTheme.bodyLarge,
-              ),
-              const SizedBox(height: 16),
-              TextFormField(
-                controller: _vaultNameController,
-                decoration: const InputDecoration(
-                  labelText: 'Nome do ficheiro (opcional)',
-                  hintText: 'ex: EncryVault.vltx',
-                ),
-              ),
-              const SizedBox(height: 16),
-              TextFormField(
-                controller: _masterController,
-                obscureText: _obscure,
-                onChanged: (_) => setState(() {}),
-                decoration: InputDecoration(
-                  labelText: 'Palavra-passe mestra',
-                  suffixIcon: IconButton(
-                    icon: Icon(
-                      _obscure ? Icons.visibility_off : Icons.visibility,
-                    ),
-                    onPressed: () => setState(() => _obscure = !_obscure),
+      body: Stack(
+        children: [
+          SingleChildScrollView(
+            padding: const EdgeInsets.all(20),
+            child: Form(
+              key: _formKey,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Define a tua palavra-passe mestra para cifrar todo o cofre.',
+                    style: Theme.of(context).textTheme.bodyLarge,
                   ),
-                ),
-                validator: (v) {
-                  final value = v ?? '';
-                  if (value.isEmpty) return 'Obrigatório';
-                  final result = MasterPasswordPolicy.evaluate(value);
-                  if (!result.isValid) {
-                    return result.firstMissingRequirement ??
-                        'A palavra-passe mestra não cumpre os requisitos.';
-                  }
-                  return null;
-                },
+                  const SizedBox(height: 16),
+                  TextFormField(
+                    controller: _vaultNameController,
+                    decoration: const InputDecoration(
+                      labelText: 'Nome do ficheiro (opcional)',
+                      hintText: 'ex: EncryVault.vltx',
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  TextFormField(
+                    controller: _masterController,
+                    obscureText: _obscure,
+                    onChanged: (_) => setState(() {}),
+                    decoration: InputDecoration(
+                      labelText: 'Palavra-passe mestra',
+                      suffixIcon: IconButton(
+                        icon: Icon(
+                          _obscure ? Icons.visibility_off : Icons.visibility,
+                        ),
+                        onPressed: () => setState(() => _obscure = !_obscure),
+                      ),
+                    ),
+                    validator: (v) {
+                      final value = v ?? '';
+                      if (value.isEmpty) return 'Obrigatório';
+                      final result = MasterPasswordPolicy.evaluate(value);
+                      if (!result.isValid) {
+                        return result.firstMissingRequirement ??
+                            'A palavra-passe mestra não cumpre os requisitos.';
+                      }
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                  PasswordPolicyStatus(result: policy),
+                  const SizedBox(height: 8),
+                  EntryPasswordGeneratorOptionsPanel(
+                    options: _generatorOptions,
+                    hasPassword: _masterController.text.isNotEmpty,
+                    busy: _loading,
+                    onChanged: (options) {
+                      setState(() => _generatorOptions = options);
+                    },
+                    onGenerate: _generateMasterPassword,
+                  ),
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    controller: _confirmController,
+                    obscureText: _obscure,
+                    decoration: const InputDecoration(
+                      labelText: 'Confirmar palavra-passe',
+                    ),
+                    validator: (v) {
+                      if (v != _masterController.text) {
+                        return 'As palavras-passe não coincidem.';
+                      }
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: 24),
+                  ElevatedButton(
+                    onPressed: _loading || !policy.isValid ? null : _create,
+                    child: _loading
+                        ? const SizedBox(
+                            height: 20,
+                            width: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Text('Criar cofre'),
+                  ),
+                ],
               ),
-              const SizedBox(height: 12),
-              PasswordPolicyStatus(result: policy),
-              const SizedBox(height: 8),
-              EntryPasswordGeneratorOptionsPanel(
-                options: _generatorOptions,
-                hasPassword: _masterController.text.isNotEmpty,
-                busy: _loading,
-                onChanged: (options) {
-                  setState(() => _generatorOptions = options);
-                },
-                onGenerate: _generateMasterPassword,
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                controller: _confirmController,
-                obscureText: _obscure,
-                decoration: const InputDecoration(
-                  labelText: 'Confirmar palavra-passe',
-                ),
-                validator: (v) {
-                  if (v != _masterController.text) {
-                    return 'As palavras-passe não coincidem.';
-                  }
-                  return null;
-                },
-              ),
-              const SizedBox(height: 24),
-              ElevatedButton(
-                onPressed: _loading || !policy.isValid ? null : _create,
-                child: _loading
-                    ? const SizedBox(
-                        height: 20,
-                        width: 20,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Text('Criar cofre'),
-              ),
-            ],
+            ),
           ),
-        ),
+          if (_loading)
+            const VaultOperationLoadingOverlay(
+              title: 'A criar cofre',
+              message:
+                  'Estamos a preparar a cifragem local e o ficheiro seguro.',
+            ),
+        ],
       ),
     );
   }

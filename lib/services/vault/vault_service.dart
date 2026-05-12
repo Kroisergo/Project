@@ -37,7 +37,7 @@ class VaultService {
       sodium.crypto.aeadXChaCha20Poly1305IETF.nonceBytes,
     );
 
-    final key = cryptoService.deriveKey(
+    final key = await cryptoService.deriveKeyInBackground(
       sodium: sodium,
       masterPassword: masterPassword,
       salt: salt,

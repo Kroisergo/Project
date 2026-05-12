@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../config/theme/design_tokens.dart';
+import '../../models/app_design_mode.dart';
 import '../../models/tag_display_mode.dart';
 import '../../models/vault_entry.dart';
 import '../../models/vault_sort_mode.dart';
@@ -12,6 +14,8 @@ import '../../services/vault/tag_display_controller.dart';
 import '../../services/vault/vault_sort_controller.dart';
 import '../../services/vault/vault_state.dart';
 import '../../utils/router_paths.dart';
+import '../../widgets/app_surface.dart';
+import '../../widgets/vault_category_icon.dart';
 import '../unlock/unlock_page.dart';
 
 class _VaultHomeColors {
@@ -28,37 +32,36 @@ class _VaultHomeColors {
     required this.favorite,
     required this.onAccent,
     required this.cardShadow,
-    required this.subtleOverlay,
+    required this.cardRadius,
+    required this.chipRadius,
+    required this.designMode,
   });
 
   factory _VaultHomeColors.from(BuildContext context) {
-    final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
-    final isDark = theme.brightness == Brightness.dark;
-    final accent = isDark ? const Color(0xFF8AB4F8) : scheme.primary;
+    final tokens = EncryVaultTheme.of(context);
 
     return _VaultHomeColors(
-      isDark: isDark,
-      background: isDark
-          ? const Color(0xFF121212)
-          : theme.scaffoldBackgroundColor,
-      surface: isDark ? const Color(0xFF181818) : Colors.white,
-      surfaceRaised: isDark ? const Color(0xFF202124) : const Color(0xFFF1F5F9),
-      border: isDark ? const Color(0xFF2A2A2A) : const Color(0xFFE2E8F0),
-      accent: accent,
-      primaryText: isDark ? const Color(0xFFF1F3F4) : scheme.onSurface,
-      secondaryText: isDark ? const Color(0xFFB8BDC4) : const Color(0xFF475467),
-      mutedText: isDark ? const Color(0xFF7F858D) : const Color(0xFF667085),
-      favorite: isDark ? const Color(0xFFFFC857) : const Color(0xFFB7791F),
-      onAccent: isDark ? const Color(0xFF121212) : scheme.onPrimary,
-      cardShadow: isDark
+      isDark: tokens.isDark,
+      background: tokens.background,
+      surface: tokens.surface,
+      surfaceRaised: tokens.surfaceRaised,
+      border: tokens.border,
+      accent: tokens.accent,
+      primaryText: tokens.textPrimary,
+      secondaryText: tokens.textSecondary,
+      mutedText: tokens.textMuted,
+      favorite: tokens.favorite,
+      onAccent: tokens.onAccent,
+      cardShadow: tokens.cardShadow.isEmpty
           ? Colors.transparent
-          : const Color(0xFF101828).withValues(alpha: 0.06),
-      subtleOverlay: isDark
-          ? Colors.white.withValues(alpha: 0.06)
-          : Colors.black.withValues(alpha: 0.04),
+          : tokens.cardShadow.first.color,
+      cardRadius: tokens.cardRadius,
+      chipRadius: tokens.chipRadius,
+      designMode: tokens.designMode,
     );
   }
+
+  bool get isClassicDesign => designMode == AppDesignMode.classic;
 
   final bool isDark;
   final Color background;
@@ -72,7 +75,9 @@ class _VaultHomeColors {
   final Color favorite;
   final Color onAccent;
   final Color cardShadow;
-  final Color subtleOverlay;
+  final double cardRadius;
+  final double chipRadius;
+  final AppDesignMode designMode;
 }
 
 class VaultHomePage extends ConsumerStatefulWidget {
@@ -204,25 +209,57 @@ class _VaultHomePageState extends ConsumerState<VaultHomePage>
     if (!mounted) return;
     await showDialog<void>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Alertas de palavras-passe'),
-        content: const Text(
-          'Existem palavras-passe que precisam de atenção. Para veres quais são e os detalhes, abre Configurações e depois Saúde.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('Fechar'),
+      builder: (dialogContext) {
+        final colors = _VaultHomeColors.from(dialogContext);
+        final isModern = usesModernVaultFilterSurfaces(colors.designMode);
+        return AlertDialog(
+          backgroundColor: isModern ? colors.surface : null,
+          surfaceTintColor: Colors.transparent,
+          shape: isModern
+              ? RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(colors.cardRadius),
+                  side: BorderSide(color: colors.border),
+                )
+              : null,
+          title: isModern
+              ? Row(
+                  children: [
+                    Container(
+                      width: 36,
+                      height: 36,
+                      decoration: BoxDecoration(
+                        color: colors.accent.withValues(alpha: 0.14),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Icon(
+                        Icons.health_and_safety_outlined,
+                        color: colors.accent,
+                        size: 20,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    const Expanded(child: Text('Alertas de palavras-passe')),
+                  ],
+                )
+              : const Text('Alertas de palavras-passe'),
+          content: const Text(
+            'Existem palavras-passe que precisam de atenção. Para veres quais são e os detalhes, abre Configurações e depois Saúde.',
           ),
-          TextButton(
-            onPressed: () {
-              Navigator.of(dialogContext).pop();
-              context.push(RouterPaths.vaultSettings);
-            },
-            child: const Text('Abrir configurações'),
-          ),
-        ],
-      ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('Fechar'),
+            ),
+            TextButton(
+              onPressed: () {
+                Navigator.of(dialogContext).pop();
+                context.push(RouterPaths.vaultSettings);
+              },
+              child: const Text('Abrir configurações'),
+            ),
+          ],
+        );
+      },
     );
   }
 
@@ -314,20 +351,18 @@ class _VaultHomePageState extends ConsumerState<VaultHomePage>
               icon: const Icon(Icons.delete_outline_rounded),
               onPressed: _deleteSelectedEntries,
             ),
-          if (!_selectionMode && healthReport?.hasImportantAlerts == true)
-            IconButton(
-              tooltip: 'Alertas de palavras-passe',
-              icon: Icon(
-                Icons.warning_amber_rounded,
-                color: Theme.of(context).colorScheme.error,
-              ),
-              onPressed: _showHealthInfo,
-            ),
           if (!_selectionMode && showFilters)
             PopupMenuButton<VaultSortMode>(
               tooltip: 'Ordenar',
               color: colors.surface,
               icon: const Icon(Icons.sort_rounded),
+              surfaceTintColor: Colors.transparent,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(
+                  colors.isClassicDesign ? 10 : 16,
+                ),
+                side: BorderSide(color: colors.border),
+              ),
               initialValue: sortMode,
               onSelected: (mode) {
                 _autoLock.restart();
@@ -337,7 +372,19 @@ class _VaultHomePageState extends ConsumerState<VaultHomePage>
                   .map(
                     (mode) => PopupMenuItem<VaultSortMode>(
                       value: mode,
-                      child: Text(mode.label),
+                      child: Row(
+                        children: [
+                          Icon(
+                            _sortModeIcon(mode),
+                            size: 18,
+                            color: mode == sortMode
+                                ? colors.accent
+                                : colors.mutedText,
+                          ),
+                          const SizedBox(width: 10),
+                          Text(mode.label),
+                        ],
+                      ),
                     ),
                   )
                   .toList(),
@@ -380,112 +427,149 @@ class _VaultHomePageState extends ConsumerState<VaultHomePage>
                   _autoLock.restart();
                   return false;
                 },
-                child: SafeArea(
-                  top: false,
-                  child: Column(
-                    children: [
-                      _VaultSearchBar(
-                        controller: _searchController,
-                        hasQuery: _query.isNotEmpty,
-                        onChanged: (value) {
-                          _autoLock.restart();
-                          setState(() => _query = value.trim().toLowerCase());
-                        },
-                        onClear: _clearFilters,
-                      ),
-                      _VaultCategoryStrip(
-                        favoritesOnly: _favoritesOnly,
-                        selectedCategory: _selectedCategory,
-                        onFavoritesChanged: (value) {
-                          _autoLock.restart();
-                          setState(() => _favoritesOnly = value);
-                        },
-                        onCategoryChanged: (category) {
-                          _autoLock.restart();
-                          setState(() => _selectedCategory = category);
-                        },
-                      ),
-                      if (visibleHomeTags.isNotEmpty)
-                        _VaultTagStrip(
-                          tags: visibleHomeTags,
-                          selectedTags: effectiveSelectedTags,
-                          onClearTags: () {
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: colors.background,
+                    gradient: !colors.isClassicDesign
+                        ? LinearGradient(
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
+                            colors: colors.isDark
+                                ? const [
+                                    Color(0xFF030812),
+                                    Color(0xFF081223),
+                                    Color(0xFF170D2D),
+                                  ]
+                                : [
+                                    colors.background,
+                                    colors.surfaceRaised,
+                                    colors.background,
+                                  ],
+                          )
+                        : null,
+                  ),
+                  child: SafeArea(
+                    top: false,
+                    child: Column(
+                      children: [
+                        _VaultSummaryCard(
+                          totalCount: entries.length,
+                          healthReport: healthReport,
+                          onShowAlerts: healthReport?.hasImportantAlerts == true
+                              ? _showHealthInfo
+                              : null,
+                        ),
+                        _VaultSearchBar(
+                          controller: _searchController,
+                          hasQuery: _query.isNotEmpty,
+                          onChanged: (value) {
                             _autoLock.restart();
-                            setState(() => _selectedTags = {});
+                            setState(() => _query = value.trim().toLowerCase());
                           },
-                          onTagChanged: (tag, selected) {
+                          onClear: _clearFilters,
+                        ),
+                        _VaultCategoryStrip(
+                          favoritesOnly: _favoritesOnly,
+                          selectedCategory: _selectedCategory,
+                          onFavoritesChanged: (value) {
                             _autoLock.restart();
-                            setState(() {
-                              if (selected) {
-                                _selectedTags = {..._selectedTags, tag};
-                              } else {
-                                _selectedTags = {..._selectedTags}..remove(tag);
-                              }
-                            });
+                            setState(() => _favoritesOnly = value);
+                          },
+                          onCategoryChanged: (category) {
+                            _autoLock.restart();
+                            setState(() => _selectedCategory = category);
                           },
                         ),
-                      _VaultFeedHeader(
-                        visibleCount: filtered.length,
-                        totalCount: entries.length,
-                        sortLabel: sortMode.label,
-                      ),
-                      Expanded(
-                        child: filtered.isEmpty
-                            ? _VaultNoResultsState(onClear: _clearFilters)
-                            : ListView.separated(
-                                padding: const EdgeInsets.fromLTRB(
-                                  16,
-                                  4,
-                                  16,
-                                  96,
-                                ),
-                                itemCount: filtered.length,
-                                separatorBuilder: (_, index) =>
-                                    const SizedBox(height: 10),
-                                itemBuilder: (context, index) {
-                                  final entry = filtered[index];
-                                  return _VaultFeedCard(
-                                    entry: entry,
-                                    selected: _selectedEntryIds.contains(
-                                      entry.id,
-                                    ),
-                                    selectionMode: _selectionMode,
-                                    formattedDate: _formatDate(entry.updatedAt),
-                                    subtitle: _entrySubtitle(entry),
-                                    onTap: () {
-                                      _autoLock.restart();
-                                      if (_selectionMode) {
+                        if (visibleHomeTags.isNotEmpty)
+                          _VaultTagStrip(
+                            tags: visibleHomeTags,
+                            selectedTags: effectiveSelectedTags,
+                            onClearTags: () {
+                              _autoLock.restart();
+                              setState(() => _selectedTags = {});
+                            },
+                            onTagChanged: (tag, selected) {
+                              _autoLock.restart();
+                              setState(() {
+                                if (selected) {
+                                  _selectedTags = {..._selectedTags, tag};
+                                } else {
+                                  _selectedTags = {..._selectedTags}
+                                    ..remove(tag);
+                                }
+                              });
+                            },
+                          ),
+                        _VaultFeedHeader(
+                          visibleCount: filtered.length,
+                          totalCount: entries.length,
+                          sortLabel: sortMode.label,
+                        ),
+                        Expanded(
+                          child: filtered.isEmpty
+                              ? _VaultNoResultsState(onClear: _clearFilters)
+                              : ListView.separated(
+                                  padding: const EdgeInsets.fromLTRB(
+                                    16,
+                                    4,
+                                    16,
+                                    96,
+                                  ),
+                                  itemCount: filtered.length,
+                                  separatorBuilder: (_, index) => SizedBox(
+                                    height: colors.isClassicDesign ? 14 : 16,
+                                  ),
+                                  itemBuilder: (context, index) {
+                                    final entry = filtered[index];
+                                    return _VaultFeedCard(
+                                      entry: entry,
+                                      selected: _selectedEntryIds.contains(
+                                        entry.id,
+                                      ),
+                                      selectionMode: _selectionMode,
+                                      formattedDate: _formatDate(
+                                        entry.updatedAt,
+                                      ),
+                                      subtitle: _entrySubtitle(entry),
+                                      onTap: () {
+                                        _autoLock.restart();
+                                        if (_selectionMode) {
+                                          _toggleSelection(entry.id);
+                                        } else {
+                                          context.push(
+                                            RouterPaths.vaultEntryView(
+                                              entry.id,
+                                            ),
+                                          );
+                                        }
+                                      },
+                                      onLongPress: () {
+                                        _autoLock.restart();
                                         _toggleSelection(entry.id);
-                                      } else {
-                                        context.push(
-                                          RouterPaths.vaultEntryView(entry.id),
-                                        );
-                                      }
-                                    },
-                                    onLongPress: () {
-                                      _autoLock.restart();
-                                      _toggleSelection(entry.id);
-                                    },
-                                    onToggleFavorite: () =>
-                                        _toggleFavorite(entry),
-                                  );
-                                },
-                              ),
-                      ),
-                    ],
+                                      },
+                                      onToggleFavorite: () =>
+                                          _toggleFavorite(entry),
+                                    );
+                                  },
+                                ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),
       ),
       floatingActionButton: _selectionMode
           ? null
-          : FloatingActionButton.small(
+          : FloatingActionButton(
               tooltip: 'Nova entrada',
-              backgroundColor: colors.surface,
-              foregroundColor: colors.accent,
+              backgroundColor: colors.accent,
+              foregroundColor: colors.onAccent,
               onPressed: _openNewEntry,
               shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(14),
+                borderRadius: BorderRadius.circular(
+                  colors.isClassicDesign ? 14 : 18,
+                ),
               ),
               child: const Icon(Icons.add_rounded),
             ),
@@ -541,6 +625,127 @@ class _VaultAppBarTitle extends StatelessWidget {
   }
 }
 
+class _VaultSummaryCard extends StatelessWidget {
+  const _VaultSummaryCard({
+    required this.totalCount,
+    required this.healthReport,
+    required this.onShowAlerts,
+  });
+
+  final int totalCount;
+  final PasswordHealthReport? healthReport;
+  final VoidCallback? onShowAlerts;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = _VaultHomeColors.from(context);
+    final tokens = EncryVaultTheme.of(context);
+    final isClassic = colors.isClassicDesign;
+    final alertCount = healthReport == null
+        ? 0
+        : healthReport!.weak +
+              healthReport!.reused +
+              healthReport!.old +
+              healthReport!.empty +
+              healthReport!.oldTrash;
+    final hasAlerts = alertCount > 0;
+
+    return Padding(
+      padding: EdgeInsets.fromLTRB(16, isClassic ? 12 : 10, 16, 10),
+      child: AppSurface(
+        elevated: !isClassic,
+        minHeight: isClassic ? 70 : 78,
+        radius: isClassic ? 12 : 18,
+        padding: EdgeInsets.symmetric(
+          horizontal: isClassic ? 18 : 20,
+          vertical: isClassic ? 14 : 16,
+        ),
+        child: Row(
+          children: [
+            Text(
+              totalCount.toString(),
+              style: TextStyle(
+                color: colors.primaryText,
+                fontSize: isClassic ? 28 : 30,
+                height: 1,
+                fontWeight: FontWeight.w800,
+                letterSpacing: 0,
+              ),
+            ),
+            const SizedBox(width: 18),
+            Expanded(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    isClassic ? 'entradas guardadas' : 'entradas ativas',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: isClassic
+                          ? colors.primaryText
+                          : colors.secondaryText,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 0,
+                    ),
+                  ),
+                  if (isClassic && hasAlerts) ...[
+                    const SizedBox(height: 5),
+                    Text(
+                      '$alertCount alertas importantes',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: tokens.warning,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        letterSpacing: 0,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            if (!isClassic && hasAlerts)
+              InkWell(
+                borderRadius: BorderRadius.circular(12),
+                onTap: onShowAlerts,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
+                  decoration: BoxDecoration(
+                    color: tokens.warning.withValues(
+                      alpha: tokens.isDark ? 0.2 : 0.1,
+                    ),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: tokens.warning.withValues(
+                        alpha: tokens.isDark ? 0.64 : 0.42,
+                      ),
+                    ),
+                  ),
+                  child: Text(
+                    '$alertCount alertas',
+                    style: TextStyle(
+                      color: colors.primaryText,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 0,
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _VaultSearchBar extends StatelessWidget {
   const _VaultSearchBar({
     required this.controller,
@@ -557,51 +762,76 @@ class _VaultSearchBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = _VaultHomeColors.from(context);
+    final isClassic = colors.isClassicDesign;
+    final isModern = usesModernVaultFilterSurfaces(colors.designMode);
+
+    final field = TextField(
+      controller: controller,
+      cursorColor: colors.accent,
+      onChanged: onChanged,
+      textInputAction: TextInputAction.search,
+      style: TextStyle(color: colors.primaryText, fontSize: 14),
+      decoration: InputDecoration(
+        hintText: isClassic ? 'Pesquisar entradas' : 'Pesquisar no cofre',
+        hintStyle: TextStyle(color: colors.mutedText),
+        prefixIcon: isClassic
+            ? null
+            : Icon(Icons.search_rounded, color: colors.accent, size: 20),
+        suffixIcon: hasQuery
+            ? IconButton(
+                tooltip: 'Limpar pesquisa',
+                icon: Icon(
+                  Icons.close_rounded,
+                  color: colors.mutedText,
+                  size: 18,
+                ),
+                onPressed: onClear,
+              )
+            : null,
+        filled: true,
+        fillColor: isClassic
+            ? colors.background
+            : isModern
+            ? Colors.transparent
+            : colors.surface,
+        constraints: BoxConstraints(minHeight: isModern ? 54 : 48),
+        isDense: true,
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 18,
+          vertical: 14,
+        ),
+        border: isModern
+            ? InputBorder.none
+            : _searchBorder(colors.border, isClassic ? 12 : 16),
+        enabledBorder: isModern
+            ? InputBorder.none
+            : _searchBorder(colors.border, isClassic ? 12 : 16),
+        focusedBorder: isModern
+            ? InputBorder.none
+            : _searchBorder(
+                colors.accent.withValues(alpha: 0.72),
+                isClassic ? 12 : 16,
+              ),
+      ),
+    );
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
-      child: TextField(
-        controller: controller,
-        cursorColor: colors.accent,
-        onChanged: onChanged,
-        textInputAction: TextInputAction.search,
-        style: TextStyle(color: colors.primaryText, fontSize: 14),
-        decoration: InputDecoration(
-          hintText: 'Procurar contas, utilizadores, URLs ou etiquetas',
-          hintStyle: TextStyle(color: colors.mutedText),
-          prefixIcon: Icon(
-            Icons.search_rounded,
-            color: colors.mutedText,
-            size: 20,
-          ),
-          suffixIcon: hasQuery
-              ? IconButton(
-                  tooltip: 'Limpar pesquisa',
-                  icon: Icon(
-                    Icons.close_rounded,
-                    color: colors.mutedText,
-                    size: 18,
-                  ),
-                  onPressed: onClear,
-                )
-              : null,
-          filled: true,
-          fillColor: colors.surfaceRaised,
-          contentPadding: const EdgeInsets.symmetric(
-            horizontal: 14,
-            vertical: 14,
-          ),
-          border: _searchBorder(colors.border),
-          enabledBorder: _searchBorder(colors.border),
-          focusedBorder: _searchBorder(colors.accent.withValues(alpha: 0.72)),
-        ),
-      ),
+      padding: EdgeInsets.fromLTRB(16, isClassic ? 10 : 8, 16, 12),
+      child: isModern
+          ? AppSurface(
+              elevated: true,
+              padding: EdgeInsets.zero,
+              radius: colors.cardRadius,
+              borderColor: colors.accent.withValues(alpha: 0.22),
+              child: field,
+            )
+          : field,
     );
   }
 
-  OutlineInputBorder _searchBorder(Color color) {
+  OutlineInputBorder _searchBorder(Color color, double radius) {
     return OutlineInputBorder(
-      borderRadius: BorderRadius.circular(8),
+      borderRadius: BorderRadius.circular(radius),
       borderSide: BorderSide(color: color),
     );
   }
@@ -623,20 +853,14 @@ class _VaultCategoryStrip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = _VaultHomeColors.from(context);
+    final isClassic = colors.isClassicDesign;
+    final isModern = usesModernVaultFilterSurfaces(colors.designMode);
 
-    return SingleChildScrollView(
+    final strip = SingleChildScrollView(
       scrollDirection: Axis.horizontal,
-      padding: const EdgeInsets.symmetric(horizontal: 16),
+      padding: EdgeInsets.symmetric(horizontal: isModern ? 12 : 16),
       child: Row(
         children: [
-          _VaultFilterChip(
-            label: 'Favoritos',
-            selected: favoritesOnly,
-            icon: Icons.star_rounded,
-            iconColor: favoritesOnly ? colors.favorite : colors.mutedText,
-            onSelected: onFavoritesChanged,
-          ),
-          const SizedBox(width: 8),
           _VaultChoiceChip(
             label: 'Todas',
             selected: selectedCategory == null,
@@ -645,14 +869,22 @@ class _VaultCategoryStrip extends StatelessWidget {
             },
           ),
           const SizedBox(width: 8),
+          _VaultFilterChip(
+            label: 'Favoritos',
+            selected: favoritesOnly,
+            icon: isClassic ? null : Icons.star_rounded,
+            iconColor: favoritesOnly ? colors.favorite : colors.mutedText,
+            onSelected: onFavoritesChanged,
+          ),
+          const SizedBox(width: 8),
           ...VaultEntryCategory.values.map(
             (category) => Padding(
               padding: const EdgeInsets.only(right: 8),
               child: _VaultChoiceChip(
                 label: category.label,
                 selected: selectedCategory == category,
-                icon: _categoryIcon(category),
-                iconColor: _categoryColor(category, colors),
+                icon: isClassic ? null : vaultEntryCategoryIcon(category),
+                iconColor: vaultEntryCategoryColor(category, colors.isDark),
                 onSelected: (selected) {
                   onCategoryChanged(selected ? category : null);
                 },
@@ -660,6 +892,18 @@ class _VaultCategoryStrip extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+
+    if (!isModern) return strip;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: AppSurface(
+        elevated: true,
+        padding: const EdgeInsets.symmetric(vertical: 10),
+        radius: colors.cardRadius,
+        child: strip,
       ),
     );
   }
@@ -680,9 +924,16 @@ class _VaultTagStrip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SingleChildScrollView(
+    final colors = _VaultHomeColors.from(context);
+    final isModern = usesModernVaultFilterSurfaces(colors.designMode);
+    final strip = SingleChildScrollView(
       scrollDirection: Axis.horizontal,
-      padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+      padding: EdgeInsets.fromLTRB(
+        isModern ? 12 : 16,
+        10,
+        isModern ? 12 : 16,
+        0,
+      ),
       child: Row(
         children: [
           _VaultChoiceChip(
@@ -706,6 +957,18 @@ class _VaultTagStrip extends StatelessWidget {
         ],
       ),
     );
+
+    if (!isModern) return strip;
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+      child: AppSurface(
+        elevated: true,
+        padding: const EdgeInsets.only(bottom: 10),
+        radius: colors.cardRadius,
+        child: strip,
+      ),
+    );
   }
 }
 
@@ -723,43 +986,45 @@ class _VaultFeedHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = _VaultHomeColors.from(context);
+    final isClassic = colors.isClassicDesign;
     final entryLabel = visibleCount == 1 ? 'entrada' : 'entradas';
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 18, 20, 8),
+      padding: EdgeInsets.fromLTRB(20, isClassic ? 28 : 18, 20, 8),
       child: Row(
         children: [
           Expanded(
             child: Text(
-              '$visibleCount $entryLabel',
+              isClassic
+                  ? 'Recentes'
+                  : '$visibleCount $entryLabel · ${sortLabel.replaceAll('-', '‑')}',
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
                 color: colors.secondaryText,
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
+                fontSize: isClassic ? 14 : 13,
+                fontWeight: FontWeight.w700,
                 letterSpacing: 0,
               ),
             ),
           ),
-          Icon(Icons.tune_rounded, color: colors.mutedText, size: 14),
-          const SizedBox(width: 6),
-          Flexible(
-            child: Text(
-              totalCount == visibleCount
-                  ? sortLabel
-                  : '$visibleCount de $totalCount | $sortLabel',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              textAlign: TextAlign.end,
-              style: TextStyle(
-                color: colors.mutedText,
-                fontSize: 12,
-                fontWeight: FontWeight.w500,
-                letterSpacing: 0,
+          if (isClassic)
+            Flexible(
+              child: Text(
+                totalCount == visibleCount
+                    ? '$visibleCount $entryLabel'
+                    : '$visibleCount de $totalCount',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.end,
+                style: TextStyle(
+                  color: colors.mutedText,
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w500,
+                  letterSpacing: 0,
+                ),
               ),
             ),
-          ),
         ],
       ),
     );
@@ -802,7 +1067,11 @@ class _VaultFeedCardState extends State<_VaultFeedCard> {
   @override
   Widget build(BuildContext context) {
     final colors = _VaultHomeColors.from(context);
-    final accent = _categoryColor(widget.entry.category, colors);
+    final isClassic = colors.isClassicDesign;
+    final accent = vaultEntryCategoryColor(
+      widget.entry.category,
+      colors.isDark,
+    );
     final borderColor = widget.selected
         ? accent.withValues(alpha: 0.7)
         : colors.border;
@@ -817,9 +1086,10 @@ class _VaultFeedCardState extends State<_VaultFeedCard> {
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 140),
         curve: Curves.easeOut,
+        constraints: BoxConstraints(minHeight: isClassic ? 70 : 88),
         decoration: BoxDecoration(
           color: backgroundColor,
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(colors.cardRadius),
           border: Border.all(color: borderColor),
           boxShadow: [
             if (!colors.isDark)
@@ -831,94 +1101,130 @@ class _VaultFeedCardState extends State<_VaultFeedCard> {
           ],
         ),
         child: ClipRRect(
-          borderRadius: BorderRadius.circular(8),
-          child: Material(
-            color: Colors.transparent,
-            child: InkWell(
-              splashColor: accent.withValues(alpha: 0.08),
-              highlightColor: accent.withValues(alpha: 0.05),
-              onTapDown: (_) => _setPressed(true),
-              onTapUp: (_) => _setPressed(false),
-              onTapCancel: () => _setPressed(false),
-              onTap: widget.onTap,
-              onLongPress: widget.onLongPress,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(14, 14, 12, 14),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    if (widget.selectionMode)
-                      Padding(
-                        padding: const EdgeInsets.only(right: 8),
-                        child: Transform.scale(
-                          scale: 0.9,
-                          child: Checkbox(
-                            value: widget.selected,
-                            onChanged: (_) => widget.onTap(),
-                            activeColor: accent,
-                            checkColor: colors.onAccent,
-                            side: BorderSide(color: colors.mutedText),
+          borderRadius: BorderRadius.circular(colors.cardRadius),
+          child: Stack(
+            children: [
+              if (isClassic)
+                Positioned(
+                  left: 0,
+                  top: 0,
+                  bottom: 0,
+                  width: 3,
+                  child: ColoredBox(color: accent.withValues(alpha: 0.8)),
+                ),
+              Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  splashColor: accent.withValues(alpha: 0.08),
+                  highlightColor: accent.withValues(alpha: 0.05),
+                  onTapDown: (_) => _setPressed(true),
+                  onTapUp: (_) => _setPressed(false),
+                  onTapCancel: () => _setPressed(false),
+                  onTap: widget.onTap,
+                  onLongPress: widget.onLongPress,
+                  child: Padding(
+                    padding: EdgeInsets.fromLTRB(
+                      isClassic ? 20 : 16,
+                      isClassic ? 12 : 16,
+                      isClassic ? 14 : 14,
+                      isClassic ? 12 : 14,
+                    ),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        if (widget.selectionMode)
+                          Padding(
+                            padding: const EdgeInsets.only(right: 8),
+                            child: Transform.scale(
+                              scale: 0.9,
+                              child: Checkbox(
+                                value: widget.selected,
+                                onChanged: (_) => widget.onTap(),
+                                activeColor: accent,
+                                checkColor: colors.onAccent,
+                                side: BorderSide(color: colors.mutedText),
+                              ),
+                            ),
+                          ),
+                        if (!isClassic) ...[
+                          VaultCategoryIcon(
+                            category: widget.entry.category,
+                            size: 48,
+                            iconSize: 21,
+                          ),
+                          const SizedBox(width: 12),
+                        ],
+                        Expanded(
+                          child: _EntryContent(
+                            entry: widget.entry,
+                            accent: accent,
+                            formattedDate: widget.formattedDate,
+                            subtitle: widget.subtitle,
                           ),
                         ),
-                      ),
-                    _EntryAvatar(
-                      category: widget.entry.category,
-                      accent: accent,
+                        if (isClassic)
+                          Padding(
+                            padding: const EdgeInsets.only(left: 12),
+                            child: Text(
+                              widget.entry.category.label,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              textAlign: TextAlign.right,
+                              style: TextStyle(
+                                color: colors.secondaryText,
+                                fontSize: 12.5,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        if (!widget.selectionMode && isClassic)
+                          IconButton(
+                            tooltip: widget.entry.isFavorite
+                                ? 'Remover dos favoritos'
+                                : 'Adicionar aos favoritos',
+                            visualDensity: VisualDensity.compact,
+                            constraints: const BoxConstraints.tightFor(
+                              width: 32,
+                              height: 32,
+                            ),
+                            padding: EdgeInsets.zero,
+                            iconSize: 18,
+                            color: widget.entry.isFavorite
+                                ? colors.favorite
+                                : colors.mutedText,
+                            icon: Icon(
+                              widget.entry.isFavorite
+                                  ? Icons.star_rounded
+                                  : Icons.star_border_rounded,
+                            ),
+                            onPressed: widget.onToggleFavorite,
+                          ),
+                        if (!widget.selectionMode && !isClassic)
+                          IconButton(
+                            tooltip: widget.entry.isFavorite
+                                ? 'Remover dos favoritos'
+                                : 'Adicionar aos favoritos',
+                            visualDensity: VisualDensity.compact,
+                            iconSize: 20,
+                            color: widget.entry.isFavorite
+                                ? colors.favorite
+                                : colors.mutedText,
+                            icon: Icon(
+                              widget.entry.isFavorite
+                                  ? Icons.star_rounded
+                                  : Icons.star_border_rounded,
+                            ),
+                            onPressed: widget.onToggleFavorite,
+                          ),
+                      ],
                     ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: _EntryContent(
-                        entry: widget.entry,
-                        accent: accent,
-                        formattedDate: widget.formattedDate,
-                        subtitle: widget.subtitle,
-                      ),
-                    ),
-                    if (!widget.selectionMode)
-                      IconButton(
-                        tooltip: widget.entry.isFavorite
-                            ? 'Remover dos favoritos'
-                            : 'Adicionar aos favoritos',
-                        visualDensity: VisualDensity.compact,
-                        iconSize: 20,
-                        color: widget.entry.isFavorite
-                            ? colors.favorite
-                            : colors.mutedText,
-                        icon: Icon(
-                          widget.entry.isFavorite
-                              ? Icons.star_rounded
-                              : Icons.star_border_rounded,
-                        ),
-                        onPressed: widget.onToggleFavorite,
-                      ),
-                  ],
+                  ),
                 ),
               ),
-            ),
+            ],
           ),
         ),
       ),
-    );
-  }
-}
-
-class _EntryAvatar extends StatelessWidget {
-  const _EntryAvatar({required this.category, required this.accent});
-
-  final VaultEntryCategory category;
-  final Color accent;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 36,
-      height: 36,
-      decoration: BoxDecoration(
-        color: accent.withValues(alpha: 0.13),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: accent.withValues(alpha: 0.2)),
-      ),
-      child: Icon(_categoryIcon(category), color: accent, size: 18),
     );
   }
 }
@@ -939,9 +1245,14 @@ class _EntryContent extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = _VaultHomeColors.from(context);
+    final isClassic = colors.isClassicDesign;
+    final subtitleText = entry.username.trim().isNotEmpty
+        ? entry.username
+        : subtitle;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisAlignment: MainAxisAlignment.center,
       children: [
         Text(
           entry.title,
@@ -949,7 +1260,7 @@ class _EntryContent extends StatelessWidget {
           overflow: TextOverflow.ellipsis,
           style: TextStyle(
             color: colors.primaryText,
-            fontSize: 15,
+            fontSize: isClassic ? 14.5 : 15,
             fontWeight: FontWeight.w700,
             letterSpacing: 0,
           ),
@@ -957,20 +1268,22 @@ class _EntryContent extends StatelessWidget {
         const SizedBox(height: 5),
         Row(
           children: [
-            Icon(
-              Icons.person_outline_rounded,
-              size: 14,
-              color: colors.mutedText,
-            ),
-            const SizedBox(width: 5),
+            if (!isClassic) ...[
+              Icon(
+                Icons.person_outline_rounded,
+                size: 14,
+                color: colors.mutedText,
+              ),
+              const SizedBox(width: 5),
+            ],
             Expanded(
               child: Text(
-                subtitle,
+                subtitleText,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
                   color: colors.secondaryText,
-                  fontSize: 12,
+                  fontSize: isClassic ? 13 : 12,
                   fontWeight: FontWeight.w500,
                   letterSpacing: 0,
                 ),
@@ -978,75 +1291,33 @@ class _EntryContent extends StatelessWidget {
             ),
           ],
         ),
-        if (entry.tags.isNotEmpty) ...[
-          const SizedBox(height: 10),
-          _EntryTagsPreview(tags: entry.tags),
-        ],
-        const SizedBox(height: 10),
-        Row(
-          children: [
-            Icon(
-              Icons.schedule_rounded,
-              color: accent.withValues(alpha: 0.72),
-              size: 13,
-            ),
-            const SizedBox(width: 5),
-            Text(
-              'Atualizado $formattedDate',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: colors.mutedText,
-                fontSize: 11,
-                fontWeight: FontWeight.w500,
-                letterSpacing: 0,
+        if (!isClassic) ...[
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              _EntryCategoryPill(label: entry.category.label),
+              const Spacer(),
+              Text(
+                'Atualizado $formattedDate',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: colors.mutedText,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w500,
+                  letterSpacing: 0,
+                ),
               ),
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-}
-
-class _EntryTagsPreview extends StatefulWidget {
-  const _EntryTagsPreview({required this.tags});
-
-  final List<String> tags;
-
-  @override
-  State<_EntryTagsPreview> createState() => _EntryTagsPreviewState();
-}
-
-class _EntryTagsPreviewState extends State<_EntryTagsPreview> {
-  static const _visibleLimit = 3;
-  bool _showAll = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final hiddenCount = widget.tags.length - _visibleLimit;
-    final visibleTags = _showAll || hiddenCount <= 0
-        ? widget.tags
-        : widget.tags.take(_visibleLimit).toList();
-
-    return Wrap(
-      spacing: 6,
-      runSpacing: 6,
-      children: [
-        ...visibleTags.map((tag) => _EntryTag(label: tag)),
-        if (hiddenCount > 0)
-          ActionChip(
-            label: Text(_showAll ? 'Menos' : 'Mais ($hiddenCount)'),
-            visualDensity: VisualDensity.compact,
-            onPressed: () => setState(() => _showAll = !_showAll),
+            ],
           ),
+        ],
       ],
     );
   }
 }
 
-class _EntryTag extends StatelessWidget {
-  const _EntryTag({required this.label});
+class _EntryCategoryPill extends StatelessWidget {
+  const _EntryCategoryPill({required this.label});
 
   final String label;
 
@@ -1055,20 +1326,22 @@ class _EntryTag extends StatelessWidget {
     final colors = _VaultHomeColors.from(context);
 
     return Container(
-      constraints: const BoxConstraints(maxWidth: 120),
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      constraints: const BoxConstraints(maxWidth: 112),
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
       decoration: BoxDecoration(
-        color: colors.subtleOverlay,
-        borderRadius: BorderRadius.circular(8),
+        color: colors.surfaceRaised.withValues(alpha: colors.isDark ? 0.54 : 1),
+        borderRadius: BorderRadius.circular(colors.chipRadius),
+        border: Border.all(color: colors.border),
       ),
       child: Text(
         label,
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
+        textAlign: TextAlign.center,
         style: TextStyle(
           color: colors.secondaryText,
-          fontSize: 11,
-          fontWeight: FontWeight.w500,
+          fontSize: 12,
+          fontWeight: FontWeight.w700,
           letterSpacing: 0,
         ),
       ),
@@ -1118,7 +1391,9 @@ class _VaultFilterChip extends StatelessWidget {
             ? colors.accent.withValues(alpha: colors.isDark ? 0.55 : 0.38)
             : colors.border,
       ),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(colors.chipRadius),
+      ),
     );
   }
 }
@@ -1174,7 +1449,9 @@ class _VaultChoiceChip extends StatelessWidget {
             ? colors.accent.withValues(alpha: colors.isDark ? 0.55 : 0.38)
             : colors.border,
       ),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(colors.chipRadius),
+      ),
     );
   }
 }
@@ -1201,7 +1478,7 @@ class _VaultEmptyState extends StatelessWidget {
                 height: 58,
                 decoration: BoxDecoration(
                   color: colors.accent.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(8),
+                  borderRadius: BorderRadius.circular(colors.cardRadius),
                   border: Border.all(
                     color: colors.accent.withValues(alpha: 0.22),
                   ),
@@ -1302,36 +1579,29 @@ List<String> _visibleHomeTags(
   }
 }
 
-IconData _categoryIcon(VaultEntryCategory category) {
-  switch (category) {
-    case VaultEntryCategory.social:
-      return Icons.alternate_email_rounded;
-    case VaultEntryCategory.email:
-      return Icons.mail_outline_rounded;
-    case VaultEntryCategory.bank:
-      return Icons.account_balance_outlined;
-    case VaultEntryCategory.games:
-      return Icons.sports_esports_outlined;
-    case VaultEntryCategory.work:
-      return Icons.work_outline_rounded;
-    case VaultEntryCategory.other:
-      return Icons.lock_outline_rounded;
-  }
+bool usesModernVaultFilterSurfaces(AppDesignMode designMode) {
+  return designMode == AppDesignMode.modern;
 }
 
-Color _categoryColor(VaultEntryCategory category, _VaultHomeColors colors) {
-  switch (category) {
-    case VaultEntryCategory.social:
-      return colors.isDark ? const Color(0xFF8BD3DD) : const Color(0xFF047481);
-    case VaultEntryCategory.email:
-      return colors.isDark ? const Color(0xFFB9A7FF) : const Color(0xFF6D5BD0);
-    case VaultEntryCategory.bank:
-      return colors.isDark ? const Color(0xFF8EE6A7) : const Color(0xFF16803C);
-    case VaultEntryCategory.games:
-      return colors.isDark ? const Color(0xFFFFC857) : const Color(0xFFB7791F);
-    case VaultEntryCategory.work:
-      return colors.isDark ? const Color(0xFF7DB7FF) : const Color(0xFF1C64D1);
-    case VaultEntryCategory.other:
-      return colors.isDark ? const Color(0xFFC9CED6) : const Color(0xFF667085);
+IconData _sortModeIcon(VaultSortMode mode) {
+  switch (mode) {
+    case VaultSortMode.az:
+      return Icons.sort_by_alpha_rounded;
+    case VaultSortMode.za:
+      return Icons.sort_by_alpha_rounded;
+    case VaultSortMode.newest:
+      return Icons.fiber_new_rounded;
+    case VaultSortMode.oldest:
+      return Icons.history_rounded;
+    case VaultSortMode.recentlyEdited:
+      return Icons.edit_calendar_outlined;
+    case VaultSortMode.recentlyOpened:
+      return Icons.visibility_outlined;
+    case VaultSortMode.mostUsed:
+      return Icons.trending_up_rounded;
+    case VaultSortMode.leastUsed:
+      return Icons.trending_down_rounded;
+    case VaultSortMode.category:
+      return Icons.category_outlined;
   }
 }
