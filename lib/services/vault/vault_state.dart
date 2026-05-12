@@ -463,11 +463,87 @@ class VaultNotifier extends StateNotifier<VaultState> {
   Future<void> deleteDocument(String documentId) async {
     final current = state;
     if (!current.isUnlocked) return;
-    final result = await _documents.deleteDocumentWithResult(
-      current: current,
-      documentId: documentId,
+    final now = DateTime.now().toUtc();
+    var changed = false;
+    final documents = current.data!.documents.map((document) {
+      if (document.id != documentId || document.isDeleted) return document;
+      changed = true;
+      return document.copyWith(deletedAt: now, updatedAt: now);
+    }).toList();
+    if (!changed) return;
+    final newData = current.data!.copyWith(
+      updatedAt: now,
+      documents: documents,
     );
-    _applyDocumentResult(current, result);
+    await _saveCurrentData(current, newData);
+  }
+
+  Future<void> restoreDocument(String documentId) async {
+    final current = state;
+    if (!current.isUnlocked) return;
+    final now = DateTime.now().toUtc();
+    var changed = false;
+    final documents = current.data!.documents.map((document) {
+      if (document.id != documentId || !document.isDeleted) return document;
+      changed = true;
+      return document.copyWith(clearDeletedAt: true, updatedAt: now);
+    }).toList();
+    if (!changed) return;
+    final newData = current.data!.copyWith(
+      updatedAt: now,
+      documents: documents,
+    );
+    await _saveCurrentData(current, newData);
+  }
+
+  Future<void> permanentlyDeleteDocuments(Set<String> ids) async {
+    final current = state;
+    if (!current.isUnlocked || ids.isEmpty) return;
+    final now = DateTime.now().toUtc();
+    final newData = current.data!.copyWith(
+      updatedAt: now,
+      documents: current.data!.documents
+          .where((document) => !ids.contains(document.id))
+          .toList(),
+    );
+    await _saveCurrentData(current, newData);
+  }
+
+  Future<void> emptyDocumentTrash() async {
+    final current = state;
+    if (!current.isUnlocked) return;
+    final now = DateTime.now().toUtc();
+    final newData = current.data!.copyWith(
+      updatedAt: now,
+      documents: current.data!.activeDocuments,
+    );
+    await _saveCurrentData(current, newData);
+  }
+
+  Future<void> purgeExpiredDocumentTrash({
+    TrashRetentionOption retention = TrashRetentionPolicy.defaultOption,
+  }) async {
+    final current = state;
+    if (!current.isUnlocked) return;
+
+    final now = DateTime.now().toUtc();
+    final documents = current.data!.documents.where((document) {
+      final deletedAt = document.deletedAt;
+      return deletedAt == null ||
+          !TrashRetentionPolicy.isExpired(
+            deletedAt,
+            option: retention,
+            now: now,
+          );
+    }).toList();
+
+    if (documents.length == current.data!.documents.length) return;
+
+    final newData = current.data!.copyWith(
+      updatedAt: now,
+      documents: documents,
+    );
+    await _saveCurrentData(current, newData);
   }
 
   Future<void> exportDocument(String documentId, String destinationPath) async {
@@ -479,6 +555,14 @@ class VaultNotifier extends StateNotifier<VaultState> {
       destinationPath: destinationPath,
     );
     _notifyDocumentsUnchanged(current);
+  }
+
+  Future<VaultDocumentPreview> previewDocument(String documentId) async {
+    final current = state;
+    if (!current.isUnlocked) {
+      throw const VaultLoadException('SessÃ£o bloqueada.');
+    }
+    return _documents.previewDocument(current: current, documentId: documentId);
   }
 
   void clear() {

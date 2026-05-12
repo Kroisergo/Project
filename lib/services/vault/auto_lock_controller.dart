@@ -6,6 +6,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../storage/preferences_service.dart';
 import 'vault_state.dart';
 
+final lifecycleLockSuspensionProvider = StateProvider<int>((ref) => 0);
+
 class AutoLockController {
   AutoLockController({required this.ref, required this.onTimeout});
 
@@ -16,7 +18,6 @@ class AutoLockController {
   Duration _timeout = const Duration(minutes: 2);
   bool _loaded = false;
   bool _disabled = false;
-  int _lifecycleLockSuspensions = 0;
 
   Future<void> restart() async {
     await _ensureTimeout();
@@ -49,21 +50,25 @@ class AutoLockController {
     Future<T> Function() operation,
   ) async {
     await _ensureTimeout();
-    _lifecycleLockSuspensions += 1;
+    final suspensions = ref.read(lifecycleLockSuspensionProvider.notifier);
+    suspensions.state += 1;
     _lockTimer?.cancel();
     _lockTimer = null;
     try {
       return await operation();
     } finally {
-      _lifecycleLockSuspensions -= 1;
-      if (_lifecycleLockSuspensions <= 0) {
-        _lifecycleLockSuspensions = 0;
+      final current = ref.read(lifecycleLockSuspensionProvider);
+      ref.read(lifecycleLockSuspensionProvider.notifier).state = current <= 1
+          ? 0
+          : current - 1;
+      if (!_lifecycleLockSuspended) {
         await restart();
       }
     }
   }
 
-  bool get _lifecycleLockSuspended => _lifecycleLockSuspensions > 0;
+  bool get _lifecycleLockSuspended =>
+      ref.read(lifecycleLockSuspensionProvider) > 0;
 
   bool _isUnsafeLifecycleState(AppLifecycleState state) {
     return state == AppLifecycleState.paused ||

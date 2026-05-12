@@ -98,6 +98,23 @@ class PreferencesService {
     await prefs.setString(PrefsKeys.trashRetention, option.preferenceValue);
   }
 
+  Future<TrashRetentionOption> getDocumentTrashRetentionOption() async {
+    final prefs = await SharedPreferences.getInstance();
+    return trashRetentionOptionFromPreference(
+      prefs.getString(PrefsKeys.documentTrashRetention),
+    );
+  }
+
+  Future<void> setDocumentTrashRetentionOption(
+    TrashRetentionOption option,
+  ) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      PrefsKeys.documentTrashRetention,
+      option.preferenceValue,
+    );
+  }
+
   Future<bool> getRequireSensitiveActionConfirmation() async {
     final prefs = await SharedPreferences.getInstance();
     return prefs.getBool(PrefsKeys.requireSensitiveActionConfirmation) ?? false;

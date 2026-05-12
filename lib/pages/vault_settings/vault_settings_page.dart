@@ -58,6 +58,8 @@ class _VaultSettingsPageState extends ConsumerState<VaultSettingsPage>
   String _vaultFileName = VaultConstants.defaultVaultName;
   int _autoLockMinutes = 2;
   TrashRetentionOption _trashRetention = TrashRetentionPolicy.defaultOption;
+  TrashRetentionOption _documentTrashRetention =
+      TrashRetentionPolicy.defaultOption;
   bool _requireSensitiveActionConfirmation = false;
   bool _savePasswordHistory = true;
   bool _protectScreenshots = true;
@@ -99,6 +101,8 @@ class _VaultSettingsPageState extends ConsumerState<VaultSettingsPage>
     );
     final minutes = await _prefs.getAutoLockMinutes();
     final trashRetention = await _prefs.getTrashRetentionOption();
+    final documentTrashRetention = await _prefs
+        .getDocumentTrashRetentionOption();
     final requireSensitiveActionConfirmation = await _prefs
         .getRequireSensitiveActionConfirmation();
     final savePasswordHistory = await _prefs.getSavePasswordHistory();
@@ -121,6 +125,7 @@ class _VaultSettingsPageState extends ConsumerState<VaultSettingsPage>
     setState(() {
       _autoLockMinutes = minutes;
       _trashRetention = trashRetention;
+      _documentTrashRetention = documentTrashRetention;
       _requireSensitiveActionConfirmation = requireSensitiveActionConfirmation;
       _savePasswordHistory = savePasswordHistory;
       _protectScreenshots = protectScreenshots;
@@ -298,6 +303,23 @@ class _VaultSettingsPageState extends ConsumerState<VaultSettingsPage>
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text('Retenção do Lixo ajustada para ${option.label}.'),
+      ),
+    );
+  }
+
+  Future<void> _updateDocumentTrashRetention(
+    TrashRetentionOption option, {
+    VoidCallback? onStateChanged,
+  }) async {
+    setState(() => _documentTrashRetention = option);
+    onStateChanged?.call();
+    await _prefs.setDocumentTrashRetentionOption(option);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          'Retenção do Lixo de Documentos ajustada para ${option.label}.',
+        ),
       ),
     );
   }
@@ -772,14 +794,14 @@ class _VaultSettingsPageState extends ConsumerState<VaultSettingsPage>
             const SizedBox(height: 16),
             _SettingsCategoryTile(
               title: 'Lixo',
-              subtitle: 'Entradas eliminadas e retenção',
+              subtitle: 'Entradas, documentos e retenção',
               icon: Icons.delete_outline,
               onTap: () => _openCategory(
                 title: 'Lixo',
                 builder: (context, refresh) => [
                   ListTile(
                     leading: const Icon(Icons.delete_outline),
-                    title: const Text('Lixo'),
+                    title: const Text('Lixo de Entradas'),
                     subtitle: const Text('Ver entradas eliminadas'),
                     onTap: _busy
                         ? null
@@ -790,8 +812,20 @@ class _VaultSettingsPageState extends ConsumerState<VaultSettingsPage>
                   ),
                   const Divider(height: 1),
                   ListTile(
+                    leading: const Icon(Icons.folder_delete_outlined),
+                    title: const Text('Lixo de Documentos'),
+                    subtitle: const Text('Ver documentos eliminados'),
+                    onTap: _busy
+                        ? null
+                        : () {
+                            _autoLock.restart();
+                            context.push(RouterPaths.vaultDocumentTrash);
+                          },
+                  ),
+                  const Divider(height: 1),
+                  ListTile(
                     leading: const Icon(Icons.schedule_outlined),
-                    title: const Text('Retenção'),
+                    title: const Text('Retenção de entradas'),
                     subtitle: const Text(
                       'Define quando o Lixo elimina entradas automaticamente',
                     ),
@@ -809,6 +843,33 @@ class _VaultSettingsPageState extends ConsumerState<VaultSettingsPage>
                           ? null
                           : (option) async {
                               await _updateTrashRetention(
+                                option ?? TrashRetentionPolicy.defaultOption,
+                                onStateChanged: refresh,
+                              );
+                            },
+                    ),
+                  ),
+                  const Divider(height: 1),
+                  ListTile(
+                    leading: const Icon(Icons.event_busy_outlined),
+                    title: const Text('Retenção de documentos'),
+                    subtitle: const Text(
+                      'Define quando o Lixo elimina documentos automaticamente',
+                    ),
+                    trailing: DropdownButton<TrashRetentionOption>(
+                      value: _documentTrashRetention,
+                      items: TrashRetentionOption.values
+                          .map(
+                            (option) => DropdownMenuItem(
+                              value: option,
+                              child: Text(option.label),
+                            ),
+                          )
+                          .toList(),
+                      onChanged: _busy
+                          ? null
+                          : (option) async {
+                              await _updateDocumentTrashRetention(
                                 option ?? TrashRetentionPolicy.defaultOption,
                                 onStateChanged: refresh,
                               );

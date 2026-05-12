@@ -7,8 +7,10 @@ import '../pages/terms/terms_page.dart';
 import '../pages/unlock/unlock_page.dart';
 import '../pages/vault_entry_edit/vault_entry_edit_page.dart';
 import '../pages/vault_entry_view/vault_entry_view_page.dart';
+import '../pages/vault_documents/vault_document_preview_page.dart';
 import '../pages/vault_documents/vault_documents_page.dart';
 import '../pages/vault_home/vault_home_page.dart';
+import '../pages/vault_document_trash/vault_document_trash_page.dart';
 import '../pages/vault_settings/vault_settings_page.dart';
 import '../pages/vault_trash/vault_trash_page.dart';
 import '../pages/welcome/welcome_page.dart';
@@ -80,6 +82,18 @@ final routerProvider = Provider<GoRouter>((ref) {
             path: VaultTrashPage.subPath,
             name: VaultTrashPage.routeName,
             builder: (context, state) => const VaultTrashPage(),
+          ),
+          GoRoute(
+            path: VaultDocumentTrashPage.subPath,
+            name: VaultDocumentTrashPage.routeName,
+            builder: (context, state) => const VaultDocumentTrashPage(),
+          ),
+          GoRoute(
+            path: VaultDocumentPreviewPage.subPath,
+            name: VaultDocumentPreviewPage.routeName,
+            builder: (context, state) => VaultDocumentPreviewPage(
+              documentId: state.pathParameters['documentId'] ?? '',
+            ),
           ),
           GoRoute(
             path: VaultDocumentsPage.subPath,

@@ -58,6 +58,7 @@ class VaultDocumentMetadata {
   final int sizeBytes;
   final DateTime createdAt;
   final DateTime updatedAt;
+  final DateTime? deletedAt;
   final int chunkSize;
   final List<VaultDocumentChunkMetadata> chunks;
 
@@ -69,9 +70,12 @@ class VaultDocumentMetadata {
     required this.sizeBytes,
     required this.createdAt,
     required this.updatedAt,
+    this.deletedAt,
     required this.chunkSize,
     required this.chunks,
   });
+
+  bool get isDeleted => deletedAt != null;
 
   VaultDocumentMetadata copyWith({
     String? id,
@@ -81,6 +85,8 @@ class VaultDocumentMetadata {
     int? sizeBytes,
     DateTime? createdAt,
     DateTime? updatedAt,
+    DateTime? deletedAt,
+    bool clearDeletedAt = false,
     int? chunkSize,
     List<VaultDocumentChunkMetadata>? chunks,
   }) {
@@ -92,6 +98,7 @@ class VaultDocumentMetadata {
       sizeBytes: sizeBytes ?? this.sizeBytes,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
+      deletedAt: clearDeletedAt ? null : (deletedAt ?? this.deletedAt),
       chunkSize: chunkSize ?? this.chunkSize,
       chunks: chunks ?? this.chunks,
     );
@@ -106,6 +113,7 @@ class VaultDocumentMetadata {
       'sizeBytes': sizeBytes,
       'createdAt': createdAt.toIso8601String(),
       'updatedAt': updatedAt.toIso8601String(),
+      if (deletedAt != null) 'deletedAt': deletedAt!.toIso8601String(),
       'chunkSize': chunkSize,
       'chunks': chunks.map((chunk) => chunk.toJson()).toList(),
     };
@@ -117,6 +125,7 @@ class VaultDocumentMetadata {
   }) {
     final createdAt = DateTime.tryParse(json['createdAt'] as String? ?? '');
     final updatedAt = DateTime.tryParse(json['updatedAt'] as String? ?? '');
+    final deletedAt = DateTime.tryParse(json['deletedAt'] as String? ?? '');
     final chunksJson = json['chunks'];
     return VaultDocumentMetadata(
       id: json['id'] as String? ?? '',
@@ -126,6 +135,7 @@ class VaultDocumentMetadata {
       sizeBytes: _intFromJson(json['sizeBytes']),
       createdAt: (createdAt ?? fallbackDate).toUtc(),
       updatedAt: (updatedAt ?? createdAt ?? fallbackDate).toUtc(),
+      deletedAt: deletedAt?.toUtc(),
       chunkSize: _intFromJson(json['chunkSize']),
       chunks: chunksJson is List
           ? chunksJson

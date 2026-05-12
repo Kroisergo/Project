@@ -470,7 +470,7 @@ class _VaultHomePageState extends ConsumerState<VaultHomePage>
                               : null,
                         ),
                         _VaultDocumentsShortcut(
-                          count: vault.data?.documents.length ?? 0,
+                          count: vault.data?.activeDocuments.length ?? 0,
                           onTap: () {
                             _autoLock.restart();
                             context.push(RouterPaths.vaultDocuments);

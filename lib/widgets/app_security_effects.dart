@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 
 import '../services/security/screen_protection_controller.dart';
 import '../services/storage/preferences_service.dart';
+import '../services/vault/auto_lock_controller.dart';
 import '../services/vault/vault_state.dart';
 import '../pages/unlock/unlock_page.dart';
 
@@ -61,6 +62,7 @@ class _AppLifecycleLockGuardState extends ConsumerState<AppLifecycleLockGuard>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (_isUnsafeLifecycleState(state)) {
+      if (_isLifecycleLockSuspended) return;
       _showShieldIfEnabled();
       _lockForLifecycle();
       return;
@@ -94,11 +96,15 @@ class _AppLifecycleLockGuardState extends ConsumerState<AppLifecycleLockGuard>
   }
 
   void _lockForLifecycle() {
+    if (_isLifecycleLockSuspended) return;
     final current = ref.read(vaultProvider);
     if (!current.isUnlocked) return;
     ref.read(vaultProvider.notifier).clear();
     _redirectPending = true;
   }
+
+  bool get _isLifecycleLockSuspended =>
+      ref.read(lifecycleLockSuspensionProvider) > 0;
 
   void _redirectToUnlock() {
     _redirectPending = false;

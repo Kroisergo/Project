@@ -13,6 +13,7 @@ import '../../services/vault/vault_document_limits.dart';
 import '../../services/vault/vault_repository.dart';
 import '../../services/vault/vault_state.dart';
 import '../../utils/file_size_labels.dart';
+import '../../utils/router_paths.dart';
 import '../../widgets/app_surface.dart';
 import '../unlock/unlock_page.dart';
 import 'widgets/vault_document_card.dart';
@@ -137,7 +138,7 @@ class _VaultDocumentsPageState extends ConsumerState<VaultDocumentsPage>
       builder: (context) => AlertDialog(
         title: const Text('Eliminar documento?'),
         content: Text(
-          'O documento "${document.fileName}" será removido do cofre.',
+          'O documento "${document.fileName}" será movido para o Lixo de Documentos.',
         ),
         actions: [
           TextButton(
@@ -163,7 +164,7 @@ class _VaultDocumentsPageState extends ConsumerState<VaultDocumentsPage>
       try {
         await ref.read(vaultProvider.notifier).deleteDocument(document.id);
         if (!mounted) return;
-        _showSnack('Documento eliminado.');
+        _showSnack('Documento movido para o Lixo de Documentos.');
       } catch (_) {
         if (!mounted) return;
         _showSnack('Não foi possível eliminar o documento.');
@@ -224,6 +225,12 @@ class _VaultDocumentsPageState extends ConsumerState<VaultDocumentsPage>
     );
   }
 
+  Future<void> _previewDocument(VaultDocumentMetadata document) async {
+    await _autoLock.refreshTimeout();
+    if (!mounted) return;
+    context.push(RouterPaths.vaultDocumentPreview(document.id));
+  }
+
   void _showSnack(String message) {
     ScaffoldMessenger.of(
       context,
@@ -234,7 +241,8 @@ class _VaultDocumentsPageState extends ConsumerState<VaultDocumentsPage>
   Widget build(BuildContext context) {
     final tokens = EncryVaultTheme.of(context);
     final state = ref.watch(vaultProvider);
-    final documents = state.data?.documents ?? const <VaultDocumentMetadata>[];
+    final documents =
+        state.data?.activeDocuments ?? const <VaultDocumentMetadata>[];
     final isClassic = tokens.designMode == AppDesignMode.classic;
 
     return Scaffold(
@@ -244,6 +252,17 @@ class _VaultDocumentsPageState extends ConsumerState<VaultDocumentsPage>
         backgroundColor: tokens.background,
         surfaceTintColor: Colors.transparent,
         actions: [
+          IconButton(
+            tooltip: 'Lixo de Documentos',
+            onPressed: _busy
+                ? null
+                : () async {
+                    await _autoLock.refreshTimeout();
+                    if (!context.mounted) return;
+                    context.push(RouterPaths.vaultDocumentTrash);
+                  },
+            icon: const Icon(Icons.folder_delete_outlined),
+          ),
           IconButton(
             tooltip: 'Adicionar documento',
             onPressed: _busy ? null : _addDocument,
@@ -293,6 +312,7 @@ class _VaultDocumentsPageState extends ConsumerState<VaultDocumentsPage>
                         padding: const EdgeInsets.only(bottom: 12),
                         child: VaultDocumentCard(
                           document: document,
+                          onPreview: () => _previewDocument(document),
                           onExport: () => _exportDocument(document),
                           onDelete: () => _deleteDocument(document),
                           onDetails: () => _showDetails(document),

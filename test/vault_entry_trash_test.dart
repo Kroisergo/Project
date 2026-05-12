@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:encryvault/models/tag_display_mode.dart';
 import 'package:encryvault/models/quick_link_preset.dart';
 import 'package:encryvault/models/vault_data.dart';
+import 'package:encryvault/models/vault_document.dart';
 import 'package:encryvault/models/vault_entry.dart';
 import 'package:encryvault/models/vault_sort_mode.dart';
 import 'package:encryvault/services/security/entry_password_generator.dart';
@@ -100,6 +101,47 @@ void main() {
       expect(data.activeEntries, [active]);
       expect(data.deletedEntries, [deleted]);
       expect(deleted.toJson()['deletedAt'], isNotNull);
+    });
+  });
+
+  group('VaultDocument trash fields', () {
+    test('separates active and deleted documents', () {
+      final now = DateTime.utc(2026, 5, 12);
+      final active = VaultDocumentMetadata(
+        id: 'doc-active',
+        fileName: 'ativo.txt',
+        extension: 'txt',
+        mimeType: 'text/plain',
+        sizeBytes: 12,
+        createdAt: now,
+        updatedAt: now,
+        chunkSize: 2 * 1024 * 1024,
+        chunks: const [],
+      );
+      final deleted = active.copyWith(
+        id: 'doc-deleted',
+        fileName: 'apagado.txt',
+        deletedAt: now.add(const Duration(hours: 1)),
+      );
+      final data = VaultData(
+        version: VaultConstants.v3DataVersion,
+        updatedAt: now,
+        entries: const [],
+        documents: [active, deleted],
+      );
+
+      expect(active.isDeleted, isFalse);
+      expect(deleted.isDeleted, isTrue);
+      expect(data.activeDocuments, [active]);
+      expect(data.deletedDocuments, [deleted]);
+      expect(deleted.toJson()['deletedAt'], isNotNull);
+      expect(
+        VaultDocumentMetadata.fromJson(
+          deleted.toJson(),
+          fallbackDate: now,
+        ).deletedAt,
+        deleted.deletedAt,
+      );
     });
   });
 
@@ -615,6 +657,30 @@ void main() {
         isFalse,
       );
     });
+
+    test(
+      'document trash retention preference is separate from entry trash',
+      () async {
+        SharedPreferences.setMockInitialValues({});
+        final preferences = PreferencesService();
+
+        await preferences.setTrashRetentionOption(
+          TrashRetentionOption.sevenDays,
+        );
+        await preferences.setDocumentTrashRetentionOption(
+          TrashRetentionOption.threeMonths,
+        );
+
+        expect(
+          await preferences.getTrashRetentionOption(),
+          TrashRetentionOption.sevenDays,
+        );
+        expect(
+          await preferences.getDocumentTrashRetentionOption(),
+          TrashRetentionOption.threeMonths,
+        );
+      },
+    );
   });
 
   group('Vault sorting', () {

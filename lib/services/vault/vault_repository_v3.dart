@@ -286,6 +286,66 @@ class VaultRepositoryV3 {
     }
   }
 
+  Future<Uint8List> readDocument({
+    required VaultHeader header,
+    required SecureKey key,
+    required VaultDocumentMetadata document,
+    required String? fileName,
+    required int maxBytes,
+  }) async {
+    if (document.sizeBytes > maxBytes) {
+      throw const VaultDocumentLimitException(
+        'Documento demasiado grande para pré-visualização.',
+      );
+    }
+    final sodium = await ref.read(sodiumProvider.future);
+    final sourceFile = await fileService.vaultFileForName(fileName);
+    final info = await VaultContainerDetector(
+      fileService: fileService,
+    ).inspect(fileName: fileName);
+    final headerBytes = info.headerBytes;
+    final source = await sourceFile.open();
+    final out = BytesBuilder();
+    SecureKey? chunkKey;
+    try {
+      chunkKey = chunkCrypto.deriveChunkKey(sodium, key);
+      for (final chunk in document.chunks) {
+        await source.setPosition(chunk.offset);
+        final encrypted = Uint8List.fromList(
+          await source.read(chunk.encryptedSize),
+        );
+        final plaintext = chunkCrypto.decrypt(
+          sodium: sodium,
+          ciphertext: encrypted,
+          nonce: base64Decode(chunk.nonceB64),
+          key: chunkKey,
+          aad: chunkCrypto.chunkAad(
+            headerBytes: headerBytes,
+            documentId: document.id,
+            chunkIndex: chunk.index,
+            plainSize: chunk.plainSize,
+          ),
+        );
+        if (out.length + plaintext.length > maxBytes) {
+          plaintext.fillRange(0, plaintext.length, 0);
+          throw const VaultDocumentLimitException(
+            'Documento demasiado grande para pré-visualização.',
+          );
+        }
+        out.add(plaintext);
+        plaintext.fillRange(0, plaintext.length, 0);
+      }
+      return out.takeBytes();
+    } catch (_) {
+      throw const VaultAuthException(
+        'Não foi possível pré-visualizar o documento.',
+      );
+    } finally {
+      chunkKey?.dispose();
+      await source.close();
+    }
+  }
+
   Future<VaultRekeyResult> changeMasterPassword({
     required VaultHeader header,
     required VaultData data,

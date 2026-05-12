@@ -120,4 +120,11 @@ class TrashRetentionPolicy {
     }
     return 'As entradas no Lixo são eliminadas permanentemente após ${option.label}.';
   }
+
+  static String documentNoticeText(TrashRetentionOption option) {
+    if (option == TrashRetentionOption.never) {
+      return 'Os documentos no Lixo não são eliminados automaticamente.';
+    }
+    return 'Os documentos no Lixo são eliminados permanentemente após ${option.label}.';
+  }
 }

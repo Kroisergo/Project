@@ -4,29 +4,30 @@ import 'package:go_router/go_router.dart';
 
 import '../../config/theme/design_tokens.dart';
 import '../../models/app_design_mode.dart';
-import '../../models/vault_entry.dart';
+import '../../models/vault_document.dart';
 import '../../services/security/trash_pin_service.dart';
 import '../../services/storage/preferences_service.dart';
 import '../../services/vault/auto_lock_controller.dart';
 import '../../services/vault/trash_retention_policy.dart';
 import '../../services/vault/vault_state.dart';
+import '../../utils/file_size_labels.dart';
 import '../../utils/time_labels.dart';
 import '../../widgets/app_surface.dart';
 import '../../widgets/sensitive_action_confirmation.dart';
-import '../../widgets/vault_category_icon.dart';
 import '../unlock/unlock_page.dart';
 
-class VaultTrashPage extends ConsumerStatefulWidget {
-  static const subPath = 'trash';
-  static const routeName = 'vault-trash';
+class VaultDocumentTrashPage extends ConsumerStatefulWidget {
+  static const subPath = 'document-trash';
+  static const routeName = 'vault-document-trash';
 
-  const VaultTrashPage({super.key});
+  const VaultDocumentTrashPage({super.key});
 
   @override
-  ConsumerState<VaultTrashPage> createState() => _VaultTrashPageState();
+  ConsumerState<VaultDocumentTrashPage> createState() =>
+      _VaultDocumentTrashPageState();
 }
 
-class _VaultTrashPageState extends ConsumerState<VaultTrashPage>
+class _VaultDocumentTrashPageState extends ConsumerState<VaultDocumentTrashPage>
     with WidgetsBindingObserver {
   final Set<String> _selectedIds = {};
   late final AutoLockController _autoLock;
@@ -67,21 +68,11 @@ class _VaultTrashPageState extends ConsumerState<VaultTrashPage>
     context.go(UnlockPage.routePath);
   }
 
-  void _toggleSelection(String id) {
-    setState(() {
-      if (_selectedIds.contains(id)) {
-        _selectedIds.remove(id);
-      } else {
-        _selectedIds.add(id);
-      }
-    });
-  }
-
   Future<void> _prepareTrash() async {
     if (!mounted) return;
     final retention = await ref
         .read(preferencesServiceProvider)
-        .getTrashRetentionOption();
+        .getDocumentTrashRetentionOption();
     if (!mounted) return;
     setState(() => _retention = retention);
 
@@ -96,7 +87,7 @@ class _VaultTrashPageState extends ConsumerState<VaultTrashPage>
     setState(() => _checkingAccess = false);
     await ref
         .read(vaultProvider.notifier)
-        .purgeExpiredTrash(retention: retention);
+        .purgeExpiredDocumentTrash(retention: retention);
   }
 
   Future<bool> _verifyPinIfNeeded(TrashPinAction action) async {
@@ -107,12 +98,22 @@ class _VaultTrashPageState extends ConsumerState<VaultTrashPage>
     final valid = await showDialog<bool>(
       context: context,
       barrierDismissible: false,
-      builder: (context) => _TrashPinPromptDialog(
+      builder: (context) => _DocumentTrashPinPromptDialog(
         action: action,
         verifier: (pin) => service.verify(action, pin),
       ),
     );
     return valid ?? false;
+  }
+
+  void _toggleSelection(String id) {
+    setState(() {
+      if (_selectedIds.contains(id)) {
+        _selectedIds.remove(id);
+      } else {
+        _selectedIds.add(id);
+      }
+    });
   }
 
   Future<void> _restore(String id) async {
@@ -122,12 +123,10 @@ class _VaultTrashPageState extends ConsumerState<VaultTrashPage>
     if (!mounted) return;
     setState(() => _busy = true);
     try {
-      await ref.read(vaultProvider.notifier).restoreEntry(id);
+      await ref.read(vaultProvider.notifier).restoreDocument(id);
       if (!mounted) return;
       setState(() => _selectedIds.remove(id));
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Entrada restaurada.')));
+      _showSnack('Documento restaurado.');
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -139,8 +138,8 @@ class _VaultTrashPageState extends ConsumerState<VaultTrashPage>
     if (!mounted) return;
     final confirmed = await _confirmPermanentDelete(
       ids.length == 1
-          ? 'Eliminar definitivamente esta entrada?'
-          : 'Eliminar definitivamente ${ids.length} entradas?',
+          ? 'Eliminar definitivamente este documento?'
+          : 'Eliminar definitivamente ${ids.length} documentos?',
     );
     if (confirmed != true || !mounted) return;
     if (!await _verifyPinIfNeeded(TrashPinAction.delete)) return;
@@ -150,23 +149,19 @@ class _VaultTrashPageState extends ConsumerState<VaultTrashPage>
       ref: ref,
       title: 'Confirmar eliminação definitiva',
       message:
-          'Introduz a palavra-passe mestra para eliminar entradas definitivamente.',
+          'Introduz a palavra-passe mestra para eliminar documentos definitivamente.',
     );
     if (!allowed || !mounted) return;
 
     setState(() => _busy = true);
     try {
-      await ref.read(vaultProvider.notifier).permanentlyDeleteEntries(ids);
+      await ref.read(vaultProvider.notifier).permanentlyDeleteDocuments(ids);
       if (!mounted) return;
       setState(() => _selectedIds.removeAll(ids));
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            ids.length == 1
-                ? 'Entrada eliminada definitivamente.'
-                : 'Entradas eliminadas definitivamente.',
-          ),
-        ),
+      _showSnack(
+        ids.length == 1
+            ? 'Documento eliminado definitivamente.'
+            : 'Documentos eliminados definitivamente.',
       );
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -177,7 +172,7 @@ class _VaultTrashPageState extends ConsumerState<VaultTrashPage>
     await _autoLock.restart();
     if (!mounted) return;
     final confirmed = await _confirmPermanentDelete(
-      'Eliminar definitivamente todo o Lixo de Entradas?',
+      'Eliminar definitivamente todo o Lixo de Documentos?',
     );
     if (confirmed != true || !mounted) return;
     if (!await _verifyPinIfNeeded(TrashPinAction.delete)) return;
@@ -185,26 +180,25 @@ class _VaultTrashPageState extends ConsumerState<VaultTrashPage>
     final allowed = await confirmSensitiveAction(
       context: context,
       ref: ref,
-      title: 'Confirmar esvaziar Lixo',
-      message: 'Introduz a palavra-passe mestra para esvaziar o Lixo.',
+      title: 'Confirmar esvaziar Lixo de Documentos',
+      message:
+          'Introduz a palavra-passe mestra para esvaziar o Lixo de Documentos.',
     );
     if (!allowed || !mounted) return;
 
     setState(() => _busy = true);
     try {
-      await ref.read(vaultProvider.notifier).emptyTrash();
+      await ref.read(vaultProvider.notifier).emptyDocumentTrash();
       if (!mounted) return;
       setState(_selectedIds.clear);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Lixo de Entradas esvaziado.')),
-      );
+      _showSnack('Lixo de Documentos esvaziado.');
     } finally {
       if (mounted) setState(() => _busy = false);
     }
   }
 
-  Future<void> _showTrashDetails(VaultEntry entry) {
-    final deletedAt = entry.deletedAt ?? entry.updatedAt;
+  Future<void> _showTrashDetails(VaultDocumentMetadata document) {
+    final deletedAt = document.deletedAt ?? document.updatedAt;
     final permanentDeletionAt = TrashRetentionPolicy.permanentDeletionAt(
       deletedAt,
       option: _retention,
@@ -222,9 +216,11 @@ class _VaultTrashPageState extends ConsumerState<VaultTrashPage>
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Título: ${entry.title}'),
+            Text('Nome: ${document.fileName}'),
             const SizedBox(height: 8),
-            Text('Eliminada: ${formatDateTime(deletedAt)}'),
+            Text('Tamanho: ${formatFileSize(document.sizeBytes)}'),
+            const SizedBox(height: 8),
+            Text('Eliminado: ${formatDateTime(deletedAt)}'),
             const SizedBox(height: 8),
             Text(
               permanentDeletionAt == null
@@ -234,7 +230,7 @@ class _VaultTrashPageState extends ConsumerState<VaultTrashPage>
             const SizedBox(height: 8),
             Text(
               permanentDeletionAt == null
-                  ? 'Esta entrada fica no Lixo até ser eliminada manualmente.'
+                  ? 'Este documento fica no Lixo até ser eliminado manualmente.'
                   : remaining == 'expirado'
                   ? 'A retenção configurada terminou.'
                   : 'Faltam $remaining para eliminação permanente.',
@@ -281,24 +277,37 @@ class _VaultTrashPageState extends ConsumerState<VaultTrashPage>
     );
   }
 
+  void _showSnack(String message) {
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
+  }
+
   @override
   Widget build(BuildContext context) {
     final tokens = EncryVaultTheme.of(context);
-    final useModernCards = usesModernTrashEntryCards(tokens.designMode);
-    final deletedEntries =
-        (ref.watch(vaultProvider).data?.deletedEntries ?? []).toList()..sort(
-          (a, b) => (b.deletedAt ?? b.updatedAt).compareTo(
-            a.deletedAt ?? a.updatedAt,
-          ),
-        );
+    final useModernCards = tokens.designMode == AppDesignMode.modern;
+    final deletedDocuments =
+        (ref.watch(vaultProvider).data?.deletedDocuments ??
+                const <VaultDocumentMetadata>[])
+            .toList()
+          ..sort(
+            (a, b) => (b.deletedAt ?? b.updatedAt).compareTo(
+              a.deletedAt ?? a.updatedAt,
+            ),
+          );
     final selectedCount = _selectedIds.length;
 
     return Scaffold(
       backgroundColor: tokens.background,
       appBar: AppBar(
         title: Text(
-          _selectionMode ? '$selectedCount selecionada(s)' : 'Lixo de Entradas',
+          _selectionMode
+              ? '$selectedCount selecionado(s)'
+              : 'Lixo de Documentos',
         ),
+        backgroundColor: tokens.background,
+        surfaceTintColor: Colors.transparent,
         actions: [
           if (_selectionMode)
             IconButton(
@@ -308,15 +317,15 @@ class _VaultTrashPageState extends ConsumerState<VaultTrashPage>
             ),
           if (_selectionMode)
             IconButton(
-              tooltip: 'Eliminar selecionadas',
+              tooltip: 'Eliminar selecionados',
               icon: const Icon(Icons.delete_forever_outlined),
               onPressed: _busy
                   ? null
                   : () => _deletePermanently(Set<String>.from(_selectedIds)),
             ),
-          if (!_selectionMode && deletedEntries.isNotEmpty)
+          if (!_selectionMode && deletedDocuments.isNotEmpty)
             IconButton(
-              tooltip: 'Esvaziar Lixo de Entradas',
+              tooltip: 'Esvaziar Lixo de Documentos',
               icon: const Icon(Icons.delete_sweep_outlined),
               onPressed: _busy ? null : _emptyTrash,
             ),
@@ -328,8 +337,8 @@ class _VaultTrashPageState extends ConsumerState<VaultTrashPage>
         onPanDown: (_) => _autoLock.restart(),
         child: _checkingAccess
             ? const Center(child: CircularProgressIndicator())
-            : deletedEntries.isEmpty
-            ? const Center(child: Text('O Lixo de Entradas está vazio.'))
+            : deletedDocuments.isEmpty
+            ? const Center(child: Text('O Lixo de Documentos está vazio.'))
             : Column(
                 children: [
                   Padding(
@@ -339,7 +348,7 @@ class _VaultTrashPageState extends ConsumerState<VaultTrashPage>
                       tokens.pagePadding,
                       useModernCards ? 12 : 8,
                     ),
-                    child: _TrashRetentionNotice(
+                    child: _DocumentTrashRetentionNotice(
                       retention: _retention,
                       useModernCard: useModernCards,
                     ),
@@ -355,30 +364,30 @@ class _VaultTrashPageState extends ConsumerState<VaultTrashPage>
                               tokens.pagePadding,
                             )
                           : EdgeInsets.zero,
-                      itemCount: deletedEntries.length,
+                      itemCount: deletedDocuments.length,
                       separatorBuilder: (context, index) => useModernCards
                           ? const SizedBox(height: 12)
                           : const Divider(height: 1),
                       itemBuilder: (context, index) {
-                        final entry = deletedEntries[index];
-                        return _TrashEntryTile(
-                          entry: entry,
-                          selected: _selectedIds.contains(entry.id),
+                        final document = deletedDocuments[index];
+                        return _DocumentTrashTile(
+                          document: document,
+                          selected: _selectedIds.contains(document.id),
                           selectionMode: _selectionMode,
                           useModernCard: useModernCards,
                           onTap: () {
                             _autoLock.restart();
-                            if (_selectionMode) _toggleSelection(entry.id);
+                            if (_selectionMode) _toggleSelection(document.id);
                           },
                           onLongPress: () {
                             _autoLock.restart();
-                            _toggleSelection(entry.id);
+                            _toggleSelection(document.id);
                           },
-                          onDetails: () => _showTrashDetails(entry),
-                          onRestore: _busy ? null : () => _restore(entry.id),
+                          onDetails: () => _showTrashDetails(document),
+                          onRestore: _busy ? null : () => _restore(document.id),
                           onDelete: _busy
                               ? null
-                              : () => _deletePermanently({entry.id}),
+                              : () => _deletePermanently({document.id}),
                         );
                       },
                     ),
@@ -390,19 +399,9 @@ class _VaultTrashPageState extends ConsumerState<VaultTrashPage>
   }
 }
 
-class _TrashEntryTile extends StatelessWidget {
-  final VaultEntry entry;
-  final bool selected;
-  final bool selectionMode;
-  final bool useModernCard;
-  final VoidCallback onTap;
-  final VoidCallback onLongPress;
-  final VoidCallback? onDetails;
-  final VoidCallback? onRestore;
-  final VoidCallback? onDelete;
-
-  const _TrashEntryTile({
-    required this.entry,
+class _DocumentTrashTile extends StatelessWidget {
+  const _DocumentTrashTile({
+    required this.document,
     required this.selected,
     required this.selectionMode,
     required this.useModernCard,
@@ -412,6 +411,16 @@ class _TrashEntryTile extends StatelessWidget {
     required this.onRestore,
     required this.onDelete,
   });
+
+  final VaultDocumentMetadata document;
+  final bool selected;
+  final bool selectionMode;
+  final bool useModernCard;
+  final VoidCallback onTap;
+  final VoidCallback onLongPress;
+  final VoidCallback? onDetails;
+  final VoidCallback? onRestore;
+  final VoidCallback? onDelete;
 
   @override
   Widget build(BuildContext context) {
@@ -424,11 +433,9 @@ class _TrashEntryTile extends StatelessWidget {
       ),
       leading: selectionMode
           ? Checkbox(value: selected, onChanged: (_) => onTap())
-          : useModernCard
-          ? VaultCategoryIcon(category: entry.category, size: 42)
-          : const Icon(Icons.delete_outline),
+          : const Icon(Icons.description_outlined),
       title: Text(
-        entry.title,
+        document.fileName,
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
         style: useModernCard
@@ -441,7 +448,7 @@ class _TrashEntryTile extends StatelessWidget {
       subtitle: Padding(
         padding: EdgeInsets.only(top: useModernCard ? 4 : 0),
         child: Text(
-          'Eliminada: ${_formatDate(entry.deletedAt ?? entry.updatedAt)}',
+          '${formatFileSize(document.sizeBytes)}  |  Eliminado: ${formatDateTime(document.deletedAt ?? document.updatedAt)}',
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
           style: useModernCard
@@ -454,7 +461,7 @@ class _TrashEntryTile extends StatelessWidget {
       ),
       trailing: selectionMode
           ? null
-          : _TrashActionMenu(
+          : _DocumentTrashActionMenu(
               useModernCard: useModernCard,
               onDetails: onDetails,
               onRestore: onRestore,
@@ -482,14 +489,10 @@ class _TrashEntryTile extends StatelessWidget {
       child: tile,
     );
   }
-
-  String _formatDate(DateTime date) {
-    return formatDateTime(date);
-  }
 }
 
-class _TrashActionMenu extends StatelessWidget {
-  const _TrashActionMenu({
+class _DocumentTrashActionMenu extends StatelessWidget {
+  const _DocumentTrashActionMenu({
     required this.useModernCard,
     required this.onDetails,
     required this.onRestore,
@@ -504,14 +507,13 @@ class _TrashActionMenu extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tokens = EncryVaultTheme.of(context);
-    return PopupMenuButton<_TrashAction>(
+    return PopupMenuButton<_DocumentTrashAction>(
       tooltip: 'Ações',
       icon: useModernCard
           ? Icon(Icons.more_horiz_rounded, color: tokens.textMuted)
           : null,
       color: useModernCard ? tokens.surfaceRaised : null,
       surfaceTintColor: Colors.transparent,
-      elevation: useModernCard ? 10 : null,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(useModernCard ? 16 : 4),
         side: useModernCard
@@ -520,21 +522,21 @@ class _TrashActionMenu extends StatelessWidget {
       ),
       onSelected: (action) {
         switch (action) {
-          case _TrashAction.details:
+          case _DocumentTrashAction.details:
             onDetails?.call();
             break;
-          case _TrashAction.restore:
+          case _DocumentTrashAction.restore:
             onRestore?.call();
             break;
-          case _TrashAction.delete:
+          case _DocumentTrashAction.delete:
             onDelete?.call();
             break;
         }
       },
       itemBuilder: (context) => [
         PopupMenuItem(
-          value: _TrashAction.details,
-          child: _TrashMenuActionRow(
+          value: _DocumentTrashAction.details,
+          child: _DocumentTrashMenuActionRow(
             icon: Icons.info_outline_rounded,
             label: 'Detalhes',
             color: tokens.accent,
@@ -542,8 +544,8 @@ class _TrashActionMenu extends StatelessWidget {
           ),
         ),
         PopupMenuItem(
-          value: _TrashAction.restore,
-          child: _TrashMenuActionRow(
+          value: _DocumentTrashAction.restore,
+          child: _DocumentTrashMenuActionRow(
             icon: Icons.restore_rounded,
             label: 'Restaurar',
             color: tokens.success,
@@ -551,8 +553,8 @@ class _TrashActionMenu extends StatelessWidget {
           ),
         ),
         PopupMenuItem(
-          value: _TrashAction.delete,
-          child: _TrashMenuActionRow(
+          value: _DocumentTrashAction.delete,
+          child: _DocumentTrashMenuActionRow(
             icon: Icons.delete_forever_outlined,
             label: 'Eliminar definitivamente',
             color: Theme.of(context).colorScheme.error,
@@ -564,8 +566,8 @@ class _TrashActionMenu extends StatelessWidget {
   }
 }
 
-class _TrashMenuActionRow extends StatelessWidget {
-  const _TrashMenuActionRow({
+class _DocumentTrashMenuActionRow extends StatelessWidget {
+  const _DocumentTrashMenuActionRow({
     required this.icon,
     required this.label,
     required this.color,
@@ -608,19 +610,24 @@ class _TrashMenuActionRow extends StatelessWidget {
   }
 }
 
-enum _TrashAction { details, restore, delete }
+enum _DocumentTrashAction { details, restore, delete }
 
-class _TrashPinPromptDialog extends StatefulWidget {
+class _DocumentTrashPinPromptDialog extends StatefulWidget {
+  const _DocumentTrashPinPromptDialog({
+    required this.action,
+    required this.verifier,
+  });
+
   final TrashPinAction action;
   final Future<bool> Function(String pin) verifier;
 
-  const _TrashPinPromptDialog({required this.action, required this.verifier});
-
   @override
-  State<_TrashPinPromptDialog> createState() => _TrashPinPromptDialogState();
+  State<_DocumentTrashPinPromptDialog> createState() =>
+      _DocumentTrashPinPromptDialogState();
 }
 
-class _TrashPinPromptDialogState extends State<_TrashPinPromptDialog> {
+class _DocumentTrashPinPromptDialogState
+    extends State<_DocumentTrashPinPromptDialog> {
   final _controller = TextEditingController();
   String? _error;
   bool _submitting = false;
@@ -690,14 +697,14 @@ class _TrashPinPromptDialogState extends State<_TrashPinPromptDialog> {
   }
 }
 
-class _TrashRetentionNotice extends StatelessWidget {
-  final TrashRetentionOption retention;
-  final bool useModernCard;
-
-  const _TrashRetentionNotice({
+class _DocumentTrashRetentionNotice extends StatelessWidget {
+  const _DocumentTrashRetentionNotice({
     required this.retention,
     required this.useModernCard,
   });
+
+  final TrashRetentionOption retention;
+  final bool useModernCard;
 
   @override
   Widget build(BuildContext context) {
@@ -725,7 +732,7 @@ class _TrashRetentionNotice extends StatelessWidget {
             const SizedBox(width: 12),
             Expanded(
               child: Text(
-                TrashRetentionPolicy.noticeText(retention),
+                TrashRetentionPolicy.documentNoticeText(retention),
                 style: Theme.of(
                   context,
                 ).textTheme.bodySmall?.copyWith(height: 1.25),
@@ -745,14 +752,12 @@ class _TrashRetentionNotice extends StatelessWidget {
           children: [
             const Icon(Icons.info_outline),
             const SizedBox(width: 12),
-            Expanded(child: Text(TrashRetentionPolicy.noticeText(retention))),
+            Expanded(
+              child: Text(TrashRetentionPolicy.documentNoticeText(retention)),
+            ),
           ],
         ),
       ),
     );
   }
-}
-
-bool usesModernTrashEntryCards(AppDesignMode designMode) {
-  return designMode == AppDesignMode.modern;
 }

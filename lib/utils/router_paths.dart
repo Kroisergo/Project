@@ -4,5 +4,8 @@ class RouterPaths {
   static const vaultEntryNew = '/vault/entry/new';
   static const vaultSettings = '/vault/settings';
   static const vaultTrash = '/vault/trash';
+  static const vaultDocumentTrash = '/vault/document-trash';
   static const vaultDocuments = '/vault/documents';
+  static String vaultDocumentPreview(String id) =>
+      '/vault/documents/$id/preview';
 }

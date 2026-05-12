@@ -11,12 +11,14 @@ class VaultDocumentCard extends StatelessWidget {
   const VaultDocumentCard({
     super.key,
     required this.document,
+    required this.onPreview,
     required this.onExport,
     required this.onDelete,
     required this.onDetails,
   });
 
   final VaultDocumentMetadata document;
+  final VoidCallback onPreview;
   final VoidCallback onExport;
   final VoidCallback onDelete;
   final VoidCallback onDetails;
@@ -70,6 +72,7 @@ class VaultDocumentCard extends StatelessWidget {
             ),
           ),
           VaultDocumentsCardActions(
+            onPreview: onPreview,
             onDetails: onDetails,
             onExport: onExport,
             onDelete: onDelete,

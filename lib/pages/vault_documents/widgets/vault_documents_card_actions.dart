@@ -3,17 +3,19 @@ import 'package:flutter/material.dart';
 import '../../../config/theme/design_tokens.dart';
 import '../../../models/app_design_mode.dart';
 
-enum VaultDocumentAction { details, export, delete }
+enum VaultDocumentAction { preview, details, export, delete }
 
 class VaultDocumentsCardActions extends StatelessWidget {
   const VaultDocumentsCardActions({
     super.key,
     required this.onDetails,
+    required this.onPreview,
     required this.onExport,
     required this.onDelete,
   });
 
   final VoidCallback onDetails;
+  final VoidCallback onPreview;
   final VoidCallback onExport;
   final VoidCallback onDelete;
 
@@ -32,6 +34,8 @@ class VaultDocumentsCardActions extends StatelessWidget {
       ),
       onSelected: (action) {
         switch (action) {
+          case VaultDocumentAction.preview:
+            onPreview();
           case VaultDocumentAction.details:
             onDetails();
           case VaultDocumentAction.export:
@@ -41,6 +45,13 @@ class VaultDocumentsCardActions extends StatelessWidget {
         }
       },
       itemBuilder: (context) => const [
+        PopupMenuItem(
+          value: VaultDocumentAction.preview,
+          child: _DocumentMenuRow(
+            icon: Icons.visibility_outlined,
+            label: 'Visualizar',
+          ),
+        ),
         PopupMenuItem(
           value: VaultDocumentAction.details,
           child: _DocumentMenuRow(icon: Icons.info_outline, label: 'Detalhes'),

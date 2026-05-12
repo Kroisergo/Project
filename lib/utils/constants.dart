@@ -23,6 +23,7 @@ class PrefsKeys {
   static const appDesignMode = 'appDesignMode';
   static const appThemeMode = 'appThemeMode';
   static const trashRetention = 'trashRetention';
+  static const documentTrashRetention = 'documentTrashRetention';
   static const requireSensitiveActionConfirmation =
       'requireSensitiveActionConfirmation';
   static const savePasswordHistory = 'savePasswordHistory';

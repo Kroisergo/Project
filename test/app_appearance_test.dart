@@ -26,6 +26,7 @@ import 'package:encryvault/pages/welcome/welcome_page.dart';
 import 'package:encryvault/pages/vault_entry_edit/vault_entry_edit_page.dart';
 import 'package:encryvault/pages/vault_home/vault_home_page.dart';
 import 'package:encryvault/pages/vault_settings/vault_settings_page.dart';
+import 'package:encryvault/pages/vault_document_trash/vault_document_trash_page.dart';
 import 'package:encryvault/pages/vault_trash/vault_trash_page.dart';
 import 'package:encryvault/pages/unlock/unlock_page.dart';
 import 'package:encryvault/services/bootstrap/bootstrap_service.dart';
@@ -37,6 +38,7 @@ import 'package:encryvault/services/vault/vault_document_service.dart';
 import 'package:encryvault/services/vault/vault_repository.dart';
 import 'package:encryvault/services/vault/vault_state.dart';
 import 'package:encryvault/utils/constants.dart';
+import 'package:encryvault/widgets/app_security_effects.dart';
 import 'package:encryvault/widgets/vault_operation_loading_overlay.dart';
 import 'package:encryvault/widgets/theme_mode_card_selector.dart';
 
@@ -277,6 +279,7 @@ void main() {
           home: Scaffold(
             body: VaultDocumentCard(
               document: document,
+              onPreview: () {},
               onExport: () {},
               onDelete: () {},
               onDetails: () {},
@@ -292,6 +295,7 @@ void main() {
       await tester.tap(find.byType(PopupMenuButton<VaultDocumentAction>));
       await tester.pumpAndSettle();
 
+      expect(find.text('Visualizar'), findsOneWidget);
       expect(find.text('Detalhes'), findsOneWidget);
       expect(find.text('Exportar documento'), findsOneWidget);
       expect(find.text('Eliminar documento'), findsOneWidget);
@@ -323,6 +327,7 @@ void main() {
               itemCount: documents.length,
               itemBuilder: (context, index) => VaultDocumentCard(
                 document: documents[index],
+                onPreview: () {},
                 onExport: () {},
                 onDelete: () {},
                 onDetails: () {},
@@ -358,6 +363,17 @@ void main() {
             size: 2048,
           ),
         ]),
+        onPickFiles: () {
+          tester.binding.handleAppLifecycleStateChanged(
+            AppLifecycleState.inactive,
+          );
+          tester.binding.handleAppLifecycleStateChanged(
+            AppLifecycleState.paused,
+          );
+          tester.binding.handleAppLifecycleStateChanged(
+            AppLifecycleState.resumed,
+          );
+        },
       );
       FilePicker.platform = fakeFilePicker;
       addTearDown(() {
@@ -409,6 +425,10 @@ void main() {
           container: container,
           child: MaterialApp.router(
             theme: AppTheme.dark(AppDesignMode.modern),
+            builder: (context, child) => AppLifecycleLockGuard(
+              router: router,
+              child: child ?? const SizedBox.shrink(),
+            ),
             routerConfig: router,
           ),
         ),
@@ -417,10 +437,11 @@ void main() {
 
       await tester.tap(find.byTooltip('Adicionar documento'));
       await tester.pump();
-      await documentService.addStarted.future;
+      await tester.pump();
 
       await tester.pump(const Duration(seconds: 61));
 
+      expect(documentService.addStarted.isCompleted, isTrue);
       expect(container.read(vaultProvider).isUnlocked, isTrue);
       expect(find.text('contrato.pdf'), findsOneWidget);
 
@@ -482,6 +503,38 @@ void main() {
       expect(locked, isFalse);
       await controller.handleLifecycle(AppLifecycleState.paused);
       expect(locked, isTrue);
+    });
+  });
+
+  group('Trash pages', () {
+    testWidgets('entry and document trash pages use distinct PT-PT titles', (
+      tester,
+    ) async {
+      SharedPreferences.setMockInitialValues({});
+
+      await tester.pumpWidget(
+        ProviderScope(
+          child: MaterialApp(
+            theme: AppTheme.dark(AppDesignMode.modern),
+            home: const VaultTrashPage(),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+      expect(find.text('Lixo de Entradas'), findsOneWidget);
+
+      await tester.pumpWidget(
+        ProviderScope(
+          child: MaterialApp(
+            theme: AppTheme.dark(AppDesignMode.modern),
+            home: const VaultDocumentTrashPage(),
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+      expect(find.text('Lixo de Documentos'), findsOneWidget);
     });
   });
 }
@@ -560,9 +613,10 @@ class _FakeSecureKey extends Fake implements SecureKey {
 }
 
 class _FakeFilePicker extends FilePicker {
-  _FakeFilePicker({this.pickResult});
+  _FakeFilePicker({this.pickResult, this.onPickFiles});
 
   final FilePickerResult? pickResult;
+  final VoidCallback? onPickFiles;
 
   @override
   Future<FilePickerResult?> pickFiles({
@@ -579,6 +633,7 @@ class _FakeFilePicker extends FilePicker {
     bool lockParentWindow = false,
     bool readSequential = false,
   }) async {
+    onPickFiles?.call();
     return pickResult;
   }
 

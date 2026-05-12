@@ -156,6 +156,27 @@ class VaultRepository {
     );
   }
 
+  Future<Uint8List> readDocument({
+    required VaultHeader header,
+    required SecureKey key,
+    required VaultDocumentMetadata document,
+    required String? fileName,
+    required int maxBytes,
+  }) {
+    _requireV3(header);
+    return VaultRepositoryV3(
+      ref: ref,
+      cryptoService: cryptoService,
+      fileService: fileService,
+    ).readDocument(
+      header: header,
+      key: key,
+      document: document,
+      fileName: fileName,
+      maxBytes: maxBytes,
+    );
+  }
+
   void _requireV3(VaultHeader header) {
     if (header.formatVersion != VaultConstants.v3FormatVersion) {
       throw const VaultLoadException(

@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:archive/archive.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -1094,6 +1095,8 @@ void main() {
     expect(afterAdd.header!.formatVersion, VaultConstants.v3FormatVersion);
     expect(afterAdd.format, VaultContainerFormat.v3);
     expect(afterAdd.data!.documents, hasLength(1));
+    expect(afterAdd.data!.activeDocuments, hasLength(1));
+    expect(afterAdd.data!.deletedDocuments, isEmpty);
     expect(afterAdd.data!.documents.single.id, documentId);
     expect(afterAdd.data!.documents.single.chunks.length, greaterThan(1));
 
@@ -1126,13 +1129,154 @@ void main() {
 
     await container.read(vaultProvider.notifier).deleteDocument(documentId);
     final afterDelete = container.read(vaultProvider);
-    expect(afterDelete.data!.documents, isEmpty);
+    expect(afterDelete.data!.documents, hasLength(1));
+    expect(afterDelete.data!.activeDocuments, isEmpty);
+    expect(afterDelete.data!.deletedDocuments, hasLength(1));
+    expect(afterDelete.data!.deletedDocuments.single.deletedAt, isNotNull);
     final reopenedAfterDelete = await repo.loadAndDecrypt(
       masterPassword: master,
     );
     expect(reopenedAfterDelete.format, VaultContainerFormat.v3);
-    expect(reopenedAfterDelete.data.documents, isEmpty);
+    expect(reopenedAfterDelete.data.activeDocuments, isEmpty);
+    expect(reopenedAfterDelete.data.deletedDocuments.single.id, documentId);
     reopenedAfterDelete.key.dispose();
+
+    await container.read(vaultProvider.notifier).restoreDocument(documentId);
+    final afterRestore = container.read(vaultProvider);
+    expect(afterRestore.data!.activeDocuments.single.id, documentId);
+    expect(afterRestore.data!.deletedDocuments, isEmpty);
+
+    await container.read(vaultProvider.notifier).deleteDocument(documentId);
+    await container.read(vaultProvider.notifier).permanentlyDeleteDocuments({
+      documentId,
+    });
+    expect(container.read(vaultProvider).data!.documents, isEmpty);
+  });
+
+  test('Vault v3 previews small text documents without exporting', () async {
+    if (!sodiumReady) return;
+    final tempDir = await Directory.systemTemp.createTemp(
+      'vault_v3_doc_preview_test',
+    );
+    final fileService = VaultFileService(baseDir: tempDir);
+    final container = ProviderContainer(
+      overrides: [
+        sodiumProvider.overrideWith((ref) async => sodium),
+        vaultServiceProvider.overrideWith(
+          (ref) => VaultService(
+            ref: ref,
+            cryptoService: CryptoService(),
+            vaultFileService: fileService,
+          ),
+        ),
+        vaultRepositoryProvider.overrideWith(
+          (ref) => VaultRepository(
+            ref: ref,
+            cryptoService: CryptoService(),
+            fileService: fileService,
+          ),
+        ),
+      ],
+    );
+    const master = 'PreviewStrongPassword12!';
+    await container
+        .read(vaultServiceProvider)
+        .createVault(masterPassword: master);
+    final initial = await container
+        .read(vaultRepositoryProvider)
+        .loadAndDecrypt(masterPassword: master);
+    container
+        .read(vaultProvider.notifier)
+        .setVault(
+          initial.header,
+          initial.data,
+          initial.key,
+          fileName: initial.fileName,
+          format: initial.format,
+        );
+
+    const contents = 'Contrato interno\nLinha confidencial';
+    final source = File('${tempDir.path}/contrato.txt');
+    await source.writeAsString(contents, flush: true);
+
+    final documentId = await container
+        .read(vaultProvider.notifier)
+        .addDocumentFromFile(source.path);
+    final preview = await container
+        .read(vaultProvider.notifier)
+        .previewDocument(documentId);
+
+    expect(preview.kind, VaultDocumentPreviewKind.text);
+    expect(preview.text, contents);
+    expect(preview.bytes, isNull);
+  });
+
+  test('Vault v3 previews PDF documents as in-app renderable bytes', () async {
+    if (!sodiumReady) return;
+    final fixture = await _createUnlockedVaultFixture(
+      sodium,
+      tempPrefix: 'vault_v3_pdf_preview_test',
+      masterPassword: 'PdfPreviewStrongPassword12!',
+    );
+    const pdfBytes = [
+      0x25,
+      0x50,
+      0x44,
+      0x46,
+      0x2D,
+      0x31,
+      0x2E,
+      0x34,
+      0x0A,
+      0x25,
+      0x45,
+      0x4F,
+      0x46,
+    ];
+
+    final documentId = await _addDocumentBytes(
+      fixture,
+      fileName: 'livro_de_musica.pdf',
+      bytes: pdfBytes,
+    );
+    final preview = await fixture.container
+        .read(vaultProvider.notifier)
+        .previewDocument(documentId);
+
+    expect(preview.kind, VaultDocumentPreviewKind.pdf);
+    expect(preview.bytes, isNull);
+    expect(preview.text, isNull);
+    expect(preview.temporaryFilePath, isNotNull);
+    final previewFile = File(preview.temporaryFilePath!);
+    addTearDown(() async {
+      if (await previewFile.exists()) {
+        await previewFile.delete();
+      }
+    });
+    expect(await previewFile.readAsBytes(), pdfBytes);
+  });
+
+  test('Vault v3 extracts DOCX text for in-app preview', () async {
+    if (!sodiumReady) return;
+    final fixture = await _createUnlockedVaultFixture(
+      sodium,
+      tempPrefix: 'vault_v3_docx_preview_test',
+      masterPassword: 'DocxPreviewStrongPassword12!',
+    );
+
+    final documentId = await _addDocumentBytes(
+      fixture,
+      fileName: 'notas.docx',
+      bytes: _docxBytes('Primeira linha', 'Segunda linha confidencial'),
+    );
+    final preview = await fixture.container
+        .read(vaultProvider.notifier)
+        .previewDocument(documentId);
+
+    expect(preview.kind, VaultDocumentPreviewKind.text);
+    expect(preview.text, contains('Primeira linha'));
+    expect(preview.text, contains('Segunda linha confidencial'));
+    expect(preview.bytes, isNull);
   });
 
   test('Vault v3 detects tampered document chunks during export', () async {
@@ -1546,6 +1690,32 @@ Future<String> _addDocumentBytes(
   return fixture.container
       .read(vaultProvider.notifier)
       .addDocumentFromFile(source.path);
+}
+
+List<int> _docxBytes(String firstLine, String secondLine) {
+  final archive = Archive()
+    ..addFile(
+      ArchiveFile.string(
+        '[Content_Types].xml',
+        '<?xml version="1.0" encoding="UTF-8"?>'
+            '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+            '<Default Extension="xml" ContentType="application/xml"/>'
+            '</Types>',
+      ),
+    )
+    ..addFile(
+      ArchiveFile.string(
+        'word/document.xml',
+        '<?xml version="1.0" encoding="UTF-8"?>'
+            '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+            '<w:body>'
+            '<w:p><w:r><w:t>$firstLine</w:t></w:r></w:p>'
+            '<w:p><w:r><w:t>$secondLine</w:t></w:r></w:p>'
+            '</w:body>'
+            '</w:document>',
+      ),
+    );
+  return ZipEncoder().encodeBytes(archive);
 }
 
 VaultFooterV3 _footerFromVaultBytes(List<int> vaultBytes) {

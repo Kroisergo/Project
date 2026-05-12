@@ -21,6 +21,12 @@ class VaultData {
   List<VaultEntry> get deletedEntries =>
       entries.where((entry) => entry.isDeleted).toList();
 
+  List<VaultDocumentMetadata> get activeDocuments =>
+      documents.where((document) => !document.isDeleted).toList();
+
+  List<VaultDocumentMetadata> get deletedDocuments =>
+      documents.where((document) => document.isDeleted).toList();
+
   Map<String, dynamic> toJson() {
     return {
       'version': version,

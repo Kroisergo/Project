@@ -2,6 +2,7 @@ import 'dart:io';
 
 class VaultDocumentLimits {
   static const int defaultChunkSize = 2 * 1024 * 1024;
+  static const int maxPreviewBytes = 10 * 1024 * 1024;
   static const int maxDocumentBytes = 100 * 1024 * 1024;
   static const int maxTotalDocumentBytes = 500 * 1024 * 1024;
 
